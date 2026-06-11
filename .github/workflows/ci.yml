@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+permissions:
+  contents: read
+  pull-requests: write # required to post the coverage comment
+
+env:
+  GO_VERSION: "1.26"
+  COVER_THRESHOLD: "80"
+
+jobs:
+  test:
+    name: Test & coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # Tests run first so coverage is always available for the PR comment,
+      # even if a later gate (lint/vet/threshold) fails.
+      - name: Run tests with coverage
+        id: test
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Compute coverage
+        id: coverage
+        if: always()
+        run: |
+          if [ -f coverage.out ]; then
+            pct=$(go tool cover -func=coverage.out | awk '/total:/ {print substr($3, 1, length($3)-1)}')
+          else
+            pct=0
+          fi
+          echo "pct=$pct" >> "$GITHUB_OUTPUT"
+          {
+            if [ "${{ steps.test.outcome }}" = "success" ]; then
+              echo "### ✅ Tests passed"
+            else
+              echo "### ❌ Tests failed — see the workflow logs"
+            fi
+            echo ""
+            if awk "BEGIN { exit !($pct >= ${COVER_THRESHOLD}) }"; then
+              echo "**Total coverage: ${pct}%** (threshold ${COVER_THRESHOLD}% ✅)"
+            else
+              echo "**Total coverage: ${pct}%** (threshold ${COVER_THRESHOLD}% ❌ — merge blocked)"
+            fi
+            echo ""
+            echo "<details><summary>Per-function coverage</summary>"
+            echo ""
+            echo '```'
+            go tool cover -func=coverage.out 2>/dev/null || echo "no coverage data"
+            echo '```'
+            echo "</details>"
+            echo ""
+            echo "_commit \`${GITHUB_SHA::7}\` · $(date -u '+%Y-%m-%d %H:%M UTC')_"
+          } > coverage-comment.md
+
+      - name: Post coverage comment
+        if: always() && github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          path: coverage-comment.md
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
+      - name: Enforce coverage threshold
+        if: always()
+        run: |
+          pct="${{ steps.coverage.outputs.pct }}"
+          echo "coverage ${pct}% (minimum ${COVER_THRESHOLD}%)"
+          awk "BEGIN { exit !(${pct:-0} >= ${COVER_THRESHOLD}) }" \
+            || { echo "::error::coverage ${pct}% is below the ${COVER_THRESHOLD}% threshold"; exit 1; }
+
+  build:
+    name: Build binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        run: |
+          go build -v ./...
+          go build -o devdeck ./cmd/devdeck
