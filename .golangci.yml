@@ -1,0 +1,25 @@
+# golangci-lint configuration (v1.x format — matches CI pin)
+run:
+  timeout: 5m
+
+linters:
+  # Keep the stable defaults (errcheck, gosimple, govet, ineffassign,
+  # staticcheck, unused) and add a few high-signal extras.
+  enable:
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+    - unconvert
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/alexandreafj/devdeck
+
+issues:
+  exclude-rules:
+    # Tests favour readability over lint pedantry.
+    - path: _test\.go
+      linters:
+        - revive
+        - errcheck

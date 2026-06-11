@@ -1,0 +1,21 @@
+# DevDeck configuration (optional).
+#
+# DevDeck runs with sensible defaults and needs no config file. To customise it,
+# copy this file to the OS-conventional location and edit:
+#
+#   macOS:  ~/Library/Application Support/devdeck/config.yml
+#   Linux:  ~/.config/devdeck/config.yml
+#
+# Run `devdeck` (no args) and it will load that file if present.
+
+layout:
+  # Maximum widgets shown left-to-right. Capped at 4.
+  max_widgets: 4
+
+widgets:
+  - type: github_prs        # the only widget type in v0.1
+    title: "PRs"            # shown in the widget's frame
+    # Tabs to show, switched with ←/→ inside the widget. Any subset of:
+    #   authored, review_requested, assigned
+    modes: [authored, review_requested, assigned]
+    refresh: 5m             # reserved for auto-refresh (manual refresh: r / R)
