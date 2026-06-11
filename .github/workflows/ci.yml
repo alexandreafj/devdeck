@@ -75,10 +75,14 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Build golangci-lint from source with this job's Go 1.26 toolchain. The
+      # prebuilt v1.64.8 binary is built with an older Go and refuses to lint a
+      # `go 1.26` module ("language version used to build golangci-lint is lower
+      # than the targeted Go version").
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.8
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          "$(go env GOPATH)/bin/golangci-lint" run ./...
 
       - name: Enforce coverage threshold
         if: always()
