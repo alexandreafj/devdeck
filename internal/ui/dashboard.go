@@ -10,7 +10,13 @@ import (
 )
 
 // helpText is the persistent key hint shown beneath the widgets.
-const helpText = "tab next · 1-4 jump · ↑/↓ move · enter open · r refresh · R all · q quit"
+const helpText = "tab section · shift+tab widget · 1-4 jump · ↑/↓ move · / filter · enter open · r refresh · q quit"
+
+// inputCapturer is implemented by widgets that temporarily consume all key
+// input (e.g. an open text filter). While a focused widget is capturing, the
+// dashboard forwards every key to it instead of applying its global bindings,
+// so the user can type characters like "q" or digits without quitting/jumping.
+type inputCapturer interface{ CapturingInput() bool }
 
 // Dashboard is the top-level Bubble Tea model. It owns the widget set, which
 // widget has focus, and the terminal size, and routes input: global keys it
@@ -57,14 +63,19 @@ func (d Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (d Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the focused widget is capturing text (e.g. its filter is open),
+	// every key is its input — skip the global bindings entirely.
+	if c, ok := d.focused().(inputCapturer); ok && c.CapturingInput() {
+		return d.updateFocused(msg)
+	}
+
 	switch {
 	case key.Matches(msg, d.keys.Quit):
 		return d, tea.Quit
-	case key.Matches(msg, d.keys.Next):
+	case key.Matches(msg, d.keys.Next): // tab: cycle sections inside the focused widget
+		return d.updateFocused(msg)
+	case key.Matches(msg, d.keys.Prev): // shift+tab: switch between widgets
 		d.focusBy(1)
-		return d, nil
-	case key.Matches(msg, d.keys.Prev):
-		d.focusBy(-1)
 		return d, nil
 	case key.Matches(msg, d.keys.RefreshAll):
 		return d, d.refreshAll()

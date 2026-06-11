@@ -20,7 +20,7 @@ across **all** your repositories, using your existing `gh` login.
 │   Add AB test definitions page         │
 │   opened 2w ago by ana · review req.   │
 └────────────────────────────────────────┘
-tab next · 1-4 jump · ↑/↓ move · enter open · r refresh · R all · q quit
+tab section · shift+tab widget · 1-4 jump · ↑/↓ move · / filter · enter open · r refresh · q quit
 ```
 
 ## Requirements
@@ -56,10 +56,12 @@ Run `devdeck`. The GitHub widget loads automatically.
 
 | Key | Action |
 |---|---|
-| `tab` / `shift+tab` | Next / previous widget |
-| `1`–`4` | Jump to widget |
-| `↑` / `↓` (or `k` / `j`) | Move selection within a widget |
-| `←` / `→` (or `h` / `l`) | Switch tab inside the GitHub widget |
+| `tab` | Cycle sections (Authored / Review requested / Assigned) |
+| `shift+tab` | Switch between widgets |
+| `1`–`4` | Jump to a widget |
+| `↑` / `↓` (or `k` / `j`) | Move the selection |
+| `←` / `→` (or `h` / `l`) | Switch section (same as `tab`) |
+| `/` | Filter the list (fuzzy) — type to filter, `⌫` to narrow, `esc` to clear |
 | `enter` | Open the selected PR in your browser |
 | `r` / `R` | Refresh focused widget / all widgets |
 | `q` / `ctrl+c` | Quit |
@@ -72,7 +74,10 @@ DevDeck runs with sensible defaults and needs no config. To customise, copy
 - **macOS:** `~/Library/Application Support/devdeck/config.yml`
 - **Linux:** `~/.config/devdeck/config.yml`
 
-You can set the visible widgets, their titles, and which PR tabs to show.
+You can set the visible widgets, their titles, and which PR sections to show.
+The list also **auto-refreshes** on a timer (default every 60s; set per widget
+with `refresh:` — e.g. `30s`, `5m`, or omit/`0` to disable), so PRs you've
+already handled drop off without pressing `r`.
 
 ## Development
 
@@ -85,13 +90,29 @@ make test      # quick unit tests
 make cover     # coverage report (HTML)
 ```
 
-CI runs the same checks on every PR and posts a coverage comment; merges are
-blocked if coverage drops below **80%**.
+CI runs the same checks on every code PR and posts a coverage comment; merges
+are blocked if coverage drops below **80%**. Docs-only PRs (`**.md`) skip the
+heavy CI and report the required checks green automatically.
 
-## Roadmap
+## Testing
 
-- v0.1 — GitHub PRs (this release)
-- Next — Google Calendar, CI status, and `command`-type custom widgets
+Built test-first — all I/O sits behind interfaces (`exec.CommandRunner`,
+`github.PRProvider`), so the suite never invokes `gh` or the network.
+
+```sh
+make test        # quick unit tests (go test ./...)
+make test-race   # race detector
+make cover       # coverage report (HTML)
+
+go test ./internal/github/... -v -race           # one package, verbose
+go test ./internal/ui/... -run TestDashboard -v   # a single test by name
+```
+
+| Metric | Count |
+|---|---|
+| Test files | 14 |
+| Test functions | 77 |
+| Language | Go |
 
 ## License
 

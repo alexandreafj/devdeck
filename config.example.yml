@@ -15,7 +15,7 @@ layout:
 widgets:
   - type: github_prs        # the only widget type in v0.1
     title: "PRs"            # shown in the widget's frame
-    # Tabs to show, switched with ←/→ inside the widget. Any subset of:
+    # Sections to show, switched with tab or ←/→ inside the widget. Any subset of:
     #   authored, review_requested, assigned
     modes: [authored, review_requested, assigned]
-    refresh: 5m             # reserved for auto-refresh (manual refresh: r / R)
+    refresh: 1m             # auto-refresh interval (e.g. 30s, 1m, 5m); omit/0 to disable

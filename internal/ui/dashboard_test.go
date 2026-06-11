@@ -15,6 +15,7 @@ type fakeWidget struct {
 	updates   int
 	refreshes int
 	lastMsg   tea.Msg
+	capturing bool
 }
 
 func (f *fakeWidget) ID() string           { return f.id }
@@ -22,6 +23,7 @@ func (f *fakeWidget) Title() string        { return f.id }
 func (f *fakeWidget) Init() tea.Cmd        { f.inits++; return nil }
 func (f *fakeWidget) View(int, int) string { return f.id }
 func (f *fakeWidget) Refresh() tea.Cmd     { f.refreshes++; return nil }
+func (f *fakeWidget) CapturingInput() bool { return f.capturing }
 func (f *fakeWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 	f.updates++
 	f.lastMsg = msg
@@ -50,26 +52,43 @@ func TestDashboardInitCallsEachWidgetInit(t *testing.T) {
 	}
 }
 
-func TestDashboardTabCyclesFocusForward(t *testing.T) {
-	d := NewDashboard(&fakeWidget{id: "a"}, &fakeWidget{id: "b"})
-	if d.focus != 0 {
-		t.Fatalf("initial focus = %d, want 0", d.focus)
-	}
+func TestDashboardTabForwardsToFocusedWidget(t *testing.T) {
+	w0, w1 := &fakeWidget{id: "a"}, &fakeWidget{id: "b"}
+	d := NewDashboard(w0, w1) // focus starts on w0
 	d, _ = update(t, d, tea.KeyMsg{Type: tea.KeyTab})
-	if d.focus != 1 {
-		t.Errorf("after tab, focus = %d, want 1", d.focus)
-	}
-	d, _ = update(t, d, tea.KeyMsg{Type: tea.KeyTab})
+
 	if d.focus != 0 {
-		t.Errorf("after second tab, focus = %d, want 0 (wraps)", d.focus)
+		t.Errorf("tab must not change widget focus, got %d want 0", d.focus)
+	}
+	if w0.updates != 1 || w1.updates != 0 {
+		t.Errorf("tab must forward to the focused widget only, updates = (%d, %d)", w0.updates, w1.updates)
 	}
 }
 
-func TestDashboardShiftTabCyclesBackward(t *testing.T) {
+func TestDashboardShiftTabSwitchesWidget(t *testing.T) {
 	d := NewDashboard(&fakeWidget{id: "a"}, &fakeWidget{id: "b"})
 	d, _ = update(t, d, tea.KeyMsg{Type: tea.KeyShiftTab})
 	if d.focus != 1 {
-		t.Errorf("after shift+tab, focus = %d, want 1 (wraps backward)", d.focus)
+		t.Errorf("after shift+tab, focus = %d, want 1", d.focus)
+	}
+	d, _ = update(t, d, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if d.focus != 0 {
+		t.Errorf("after second shift+tab, focus = %d, want 0 (wraps)", d.focus)
+	}
+}
+
+func TestDashboardForwardsAllKeysWhileWidgetCaptures(t *testing.T) {
+	w := &fakeWidget{id: "a", capturing: true}
+	d := NewDashboard(w)
+
+	// 'q' would normally quit; while the widget captures input it must reach the
+	// widget instead so it can be typed into the filter.
+	_, cmd := update(t, d, runeKey("q"))
+	if cmd != nil {
+		t.Error("while capturing, 'q' must not quit (expected nil cmd)")
+	}
+	if w.updates != 1 {
+		t.Errorf("while capturing, keys must forward to the widget, updates = %d want 1", w.updates)
 	}
 }
 

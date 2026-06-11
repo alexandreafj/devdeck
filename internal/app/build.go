@@ -5,6 +5,7 @@ package app
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/alexandreafj/devdeck/internal/config"
 	"github.com/alexandreafj/devdeck/internal/exec"
@@ -44,8 +45,20 @@ func buildWidget(index int, wc config.WidgetConfig, runner exec.CommandRunner) u
 
 	switch wc.Type {
 	case "github_prs":
-		return githubprs.New(id, title, github.NewClient(runner), runner, github.ParseModes(wc.Modes))
+		return githubprs.
+			New(id, title, github.NewClient(runner), runner, github.ParseModes(wc.Modes)).
+			SetRefreshInterval(parseRefresh(wc.Refresh))
 	default:
 		return nil
 	}
+}
+
+// parseRefresh interprets a widget's refresh interval (e.g. "1m", "30s"). An
+// empty, malformed, or non-positive value disables auto-refresh (returns 0).
+func parseRefresh(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
 }

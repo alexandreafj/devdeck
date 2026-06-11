@@ -220,3 +220,185 @@ func TestNewDefaultsToAllModesWhenNoneGiven(t *testing.T) {
 		t.Errorf("got %d tabs, want %d (default all modes)", len(w.tabs), len(github.Modes))
 	}
 }
+
+// runeKey builds a printable key message (one or more runes).
+func runeKey(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+func TestTabKeyCyclesSections(t *testing.T) {
+	provider := &fakeProvider{prs: map[github.Mode][]github.PR{
+		github.Authored:        {pr("a/1", "t1", "x")},
+		github.ReviewRequested: {pr("b/2", "t2", "y")},
+	}}
+	w := newWidget(provider, &exectest.FakeRunner{})
+	w.Update(runCmd(t, w.Init())) // Authored loaded (active 0)
+
+	_, cmd := w.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if w.active != 1 {
+		t.Fatalf("tab should advance to the next section, active = %d want 1", w.active)
+	}
+	w.Update(runCmd(t, cmd)) // load ReviewRequested
+	if !w.tabs[1].loaded {
+		t.Error("tab onto an unloaded section should fetch it")
+	}
+}
+
+func TestSlashOpensFilterAndCaptures(t *testing.T) {
+	provider := &fakeProvider{prs: map[github.Mode][]github.PR{
+		github.Authored: {pr("acme/api", "Fix mask", "bruno")},
+	}}
+	w := newWidget(provider, &exectest.FakeRunner{})
+	w.Update(runCmd(t, w.Init()))
+
+	if w.CapturingInput() {
+		t.Fatal("should not capture input before '/'")
+	}
+	w.Update(runeKey("/"))
+	if !w.CapturingInput() {
+		t.Error("'/' should open the filter and start capturing input")
+	}
+}
+
+func filterFixture(t *testing.T) (*Widget, *exectest.FakeRunner) {
+	t.Helper()
+	provider := &fakeProvider{prs: map[github.Mode][]github.PR{
+		github.Authored: {
+			pr("acme/api", "Fix mask", "bruno"),
+			pr("acme/web", "Add page", "ana"),
+			pr("other/cli", "Refactor", "ana"),
+		},
+	}}
+	runner := &exectest.FakeRunner{}
+	w := newWidget(provider, runner)
+	w.Update(runCmd(t, w.Init()))
+	return w, runner
+}
+
+func TestFilterNarrowsThenWidens(t *testing.T) {
+	w, _ := filterFixture(t)
+
+	w.Update(runeKey("/"))
+	w.Update(runeKey("web"))
+	if got := len(w.visible(w.tabs[0])); got != 1 {
+		t.Fatalf("filter 'web' matched %d items, want 1", got)
+	}
+	view := w.View(80, 20)
+	if !strings.Contains(view, "acme/web") || strings.Contains(view, "acme/api") {
+		t.Errorf("filtered view should show only acme/web:\n%s", view)
+	}
+
+	// Deleting the query restores the full list.
+	for i := 0; i < 3; i++ {
+		w.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	if got := len(w.visible(w.tabs[0])); got != 3 {
+		t.Errorf("after clearing the query, visible = %d, want 3", got)
+	}
+}
+
+func TestEscClearsAndClosesFilter(t *testing.T) {
+	w, _ := filterFixture(t)
+	w.Update(runeKey("/"))
+	w.Update(runeKey("web"))
+	w.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if w.CapturingInput() {
+		t.Error("esc should close the filter")
+	}
+	if w.filterQuery != "" {
+		t.Errorf("esc should clear the query, got %q", w.filterQuery)
+	}
+	if got := len(w.visible(w.tabs[0])); got != 3 {
+		t.Errorf("after esc, visible = %d, want 3 (unfiltered)", got)
+	}
+}
+
+func TestEnterAppliesFilterAndKeepsQuery(t *testing.T) {
+	w, _ := filterFixture(t)
+	w.Update(runeKey("/"))
+	w.Update(runeKey("web"))
+	w.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if w.CapturingInput() {
+		t.Error("enter should close the filter input")
+	}
+	if w.filterQuery != "web" {
+		t.Errorf("enter should keep the query, got %q", w.filterQuery)
+	}
+	if got := len(w.visible(w.tabs[0])); got != 1 {
+		t.Errorf("filtered list should persist after enter, visible = %d, want 1", got)
+	}
+}
+
+func TestEnterOpensTheFilteredItem(t *testing.T) {
+	w, runner := filterFixture(t)
+	w.Update(runeKey("/"))
+	w.Update(runeKey("web"))
+	w.Update(tea.KeyMsg{Type: tea.KeyEnter}) // apply filter (filtering off, query kept)
+
+	_, cmd := w.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open selected
+	runCmd(t, cmd)
+
+	call, ok := runner.LastCall()
+	if !ok {
+		t.Fatal("expected a gh invocation")
+	}
+	joined := strings.Join(call.Args, " ")
+	if !strings.Contains(joined, "acme/web/pull/1") {
+		t.Errorf("enter should open the filtered (acme/web) PR, got %q", joined)
+	}
+}
+
+func TestMaybeTickHonoursInterval(t *testing.T) {
+	w := newWidget(&fakeProvider{}, &exectest.FakeRunner{})
+	if w.maybeTick() != nil {
+		t.Error("no refresh interval should yield no tick command")
+	}
+	w.SetRefreshInterval(time.Minute)
+	if w.maybeTick() == nil {
+		t.Error("a positive refresh interval should yield a tick command")
+	}
+}
+
+func TestAutoRefreshTickReloadsAndRearms(t *testing.T) {
+	provider := &fakeProvider{prs: map[github.Mode][]github.PR{
+		github.Authored: {pr("a/1", "t1", "x")},
+	}}
+	w := newWidget(provider, &exectest.FakeRunner{}).SetRefreshInterval(time.Minute)
+
+	_, cmd := w.Update(tickMsg{widgetID: w.id})
+	if !w.tabs[w.active].loading {
+		t.Error("a tick should reload the active section (loading=true)")
+	}
+	if cmd == nil {
+		t.Fatal("a tick should return a command (reload + re-arm)")
+	}
+	if _, ok := cmd().(tea.BatchMsg); !ok {
+		t.Errorf("tick command should batch the reload and the next tick, got %T", cmd())
+	}
+}
+
+func TestTickIgnoredForOtherWidgetAndWhenDisabled(t *testing.T) {
+	w := newWidget(&fakeProvider{}, &exectest.FakeRunner{}).SetRefreshInterval(time.Minute)
+	if _, cmd := w.Update(tickMsg{widgetID: "someone-else"}); cmd != nil {
+		t.Error("a tick addressed to another widget must be ignored")
+	}
+	if w.tabs[w.active].loading {
+		t.Error("a tick for another widget must not trigger a reload")
+	}
+
+	noRefresh := newWidget(&fakeProvider{}, &exectest.FakeRunner{})
+	if _, cmd := noRefresh.Update(tickMsg{widgetID: noRefresh.id}); cmd != nil {
+		t.Error("with auto-refresh disabled, a tick must be a no-op")
+	}
+}
+
+func TestInitArmsAutoRefreshWhenConfigured(t *testing.T) {
+	w := newWidget(&fakeProvider{}, &exectest.FakeRunner{}).SetRefreshInterval(time.Minute)
+	cmd := w.Init()
+	if cmd == nil {
+		t.Fatal("Init should return a command")
+	}
+	if _, ok := cmd().(tea.BatchMsg); !ok {
+		t.Errorf("Init with auto-refresh should batch the load and the tick, got %T", cmd())
+	}
+}
