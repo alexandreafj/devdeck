@@ -22,11 +22,11 @@ func DefaultKeyMap() KeyMap {
 		),
 		Next: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab", "next widget"),
+			key.WithHelp("tab", "next section"),
 		),
 		Prev: key.NewBinding(
 			key.WithKeys("shift+tab"),
-			key.WithHelp("shift+tab", "prev widget"),
+			key.WithHelp("shift+tab", "switch widget"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),

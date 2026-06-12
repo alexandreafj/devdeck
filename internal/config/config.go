@@ -37,7 +37,7 @@ type WidgetConfig struct {
 }
 
 // Default returns the zero-config dashboard: a single GitHub PR widget showing
-// all three modes, refreshing every 5 minutes.
+// all three modes, auto-refreshing every minute.
 func Default() Config {
 	return Config{
 		Layout: LayoutConfig{MaxWidgets: maxWidgetsCap},
@@ -45,7 +45,7 @@ func Default() Config {
 			Type:    "github_prs",
 			Title:   "PRs",
 			Modes:   []string{"authored", "review_requested", "assigned"},
-			Refresh: "5m",
+			Refresh: "1m",
 		}},
 	}
 }

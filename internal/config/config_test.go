@@ -19,6 +19,9 @@ func TestLoadReturnsDefaultsWhenFileMissing(t *testing.T) {
 	if len(cfg.Widgets) != 1 || cfg.Widgets[0].Type != "github_prs" {
 		t.Errorf("widgets = %+v, want a single github_prs widget", cfg.Widgets)
 	}
+	if cfg.Widgets[0].Refresh != "1m" {
+		t.Errorf("default refresh = %q, want 1m", cfg.Widgets[0].Refresh)
+	}
 }
 
 func TestLoadReadsValidFile(t *testing.T) {

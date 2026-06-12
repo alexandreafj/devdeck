@@ -1,0 +1,27 @@
+# Companion to ci.yml. The main CI skips docs-only changes (paths-ignore: **.md),
+# but branch protection still requires the "Test & coverage" and "Build binary"
+# checks to report. This workflow runs only for docs-only changes and re-declares
+# those same check names as instant no-ops, so doc-only PRs go green and merge
+# without a bypass. The job `name:` values MUST stay identical to ci.yml.
+name: CI (docs)
+
+on:
+  push:
+    branches: ["master"]
+    paths: ["**.md"]
+  pull_request:
+    branches: ["master"]
+    paths: ["**.md"]
+
+jobs:
+  test:
+    name: Test & coverage
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Docs-only change — no Go files touched, skipping tests."
+
+  build:
+    name: Build binary
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Docs-only change — no Go files touched, skipping build."

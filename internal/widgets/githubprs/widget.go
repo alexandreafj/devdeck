@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexandreafj/devdeck/internal/domain"
 	"github.com/alexandreafj/devdeck/internal/exec"
+	"github.com/alexandreafj/devdeck/internal/fuzzy"
 	"github.com/alexandreafj/devdeck/internal/github"
 	"github.com/alexandreafj/devdeck/internal/ui"
 )
@@ -40,6 +41,14 @@ type Widget struct {
 	tabs     []tabState
 	active   int
 	styles   ui.Styles
+
+	// refresh, when > 0, auto-reloads the active tab on a timer.
+	refresh time.Duration
+
+	// filtering is true while the user is typing a filter; filterQuery is the
+	// current fuzzy query applied to the active tab's items ("" shows all).
+	filtering   bool
+	filterQuery string
 }
 
 // New builds a GitHub PR widget. If modes is empty it defaults to all modes.
@@ -62,15 +71,31 @@ func New(id, title string, provider github.PRProvider, runner exec.CommandRunner
 	}
 }
 
+// SetRefreshInterval sets the auto-refresh period. A value <= 0 disables
+// auto-refresh. It returns the widget so app.Build can wire it fluently.
+func (w *Widget) SetRefreshInterval(d time.Duration) *Widget {
+	w.refresh = d
+	return w
+}
+
 // ID returns the widget's stable identifier.
 func (w *Widget) ID() string { return w.id }
 
 // Title returns the widget's display title.
 func (w *Widget) Title() string { return w.title }
 
-// Init begins loading the active tab.
+// CapturingInput reports whether the widget is consuming all key input (the
+// filter is open). The dashboard checks this so typed keys reach the filter
+// instead of triggering global bindings.
+func (w *Widget) CapturingInput() bool { return w.filtering }
+
+// Init begins loading the active tab and arms auto-refresh if configured.
 func (w *Widget) Init() tea.Cmd {
-	return w.loadActive()
+	load := w.loadActive()
+	if tick := w.maybeTick(); tick != nil {
+		return tea.Batch(load, tick)
+	}
+	return load
 }
 
 // Refresh reloads the active tab.
@@ -85,9 +110,26 @@ func (w *Widget) loadActive() tea.Cmd {
 	return fetchCmd(w.id, w.provider, t.mode, w.now)
 }
 
+// maybeTick returns the periodic refresh command, or nil when auto-refresh is
+// disabled.
+func (w *Widget) maybeTick() tea.Cmd {
+	if w.refresh <= 0 {
+		return nil
+	}
+	return tickCmd(w.id, w.refresh)
+}
+
+// tickMsg is the periodic auto-refresh signal for a specific widget. widgetID
+// lets a widget ignore ticks meant for another (the dashboard broadcasts
+// non-key messages to every widget).
+type tickMsg struct{ widgetID string }
+
+func tickCmd(id string, d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return tickMsg{widgetID: id} })
+}
+
 // prsLoadedMsg carries the result of a fetch back into Update. widgetID lets a
-// widget ignore results addressed to a different instance (the dashboard
-// broadcasts non-key messages to every widget).
+// widget ignore results addressed to a different instance.
 type prsLoadedMsg struct {
 	widgetID string
 	mode     github.Mode
@@ -121,12 +163,18 @@ func openCmd(runner exec.CommandRunner, url string) tea.Cmd {
 	}
 }
 
-// Update handles load results and key input.
+// Update handles load results, the refresh tick, and key input.
 func (w *Widget) Update(msg tea.Msg) (ui.Widget, tea.Cmd) {
 	switch msg := msg.(type) {
 	case prsLoadedMsg:
 		w.applyLoad(msg)
 		return w, nil
+	case tickMsg:
+		if msg.widgetID != w.id || w.refresh <= 0 {
+			return w, nil
+		}
+		// Reload the active tab and re-arm the next tick.
+		return w, tea.Batch(w.loadActive(), tickCmd(w.id, w.refresh))
 	case tea.KeyMsg:
 		return w.handleKey(msg)
 	}
@@ -152,6 +200,9 @@ func (w *Widget) applyLoad(msg prsLoadedMsg) {
 }
 
 func (w *Widget) handleKey(msg tea.KeyMsg) (ui.Widget, tea.Cmd) {
+	if w.filtering {
+		return w.handleFilterKey(msg)
+	}
 	switch msg.String() {
 	case "up", "k":
 		w.moveCursor(-1)
@@ -159,24 +210,60 @@ func (w *Widget) handleKey(msg tea.KeyMsg) (ui.Widget, tea.Cmd) {
 		w.moveCursor(1)
 	case "left", "h":
 		return w, w.switchTab(-1)
-	case "right", "l":
+	case "right", "l", "tab":
 		return w, w.switchTab(1)
+	case "/":
+		w.filtering = true
 	case "enter":
 		return w, w.openSelected()
 	}
 	return w, nil
 }
 
+// handleFilterKey edits the filter query while the filter is open. esc clears
+// and closes it; enter closes it but keeps the query (so the list stays
+// filtered while you navigate); backspace narrows, and emptying the query
+// restores the full list.
+func (w *Widget) handleFilterKey(msg tea.KeyMsg) (ui.Widget, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		w.filtering = false
+		w.filterQuery = ""
+	case tea.KeyEnter:
+		w.filtering = false
+	case tea.KeyBackspace:
+		w.filterQuery = trimLastRune(w.filterQuery)
+	case tea.KeySpace:
+		w.filterQuery += " "
+	case tea.KeyRunes:
+		w.filterQuery += string(msg.Runes)
+	default:
+		return w, nil
+	}
+	w.tabs[w.active].cursor = 0
+	return w, nil
+}
+
+func trimLastRune(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	return string(r[:len(r)-1])
+}
+
 func (w *Widget) moveCursor(delta int) {
 	t := &w.tabs[w.active]
-	if len(t.items) == 0 {
+	n := len(w.visible(*t))
+	if n == 0 {
+		t.cursor = 0
 		return
 	}
-	t.cursor = min(max(t.cursor+delta, 0), len(t.items)-1)
+	t.cursor = min(max(t.cursor+delta, 0), n-1)
 }
 
 // switchTab moves to an adjacent tab (wrapping) and lazily loads it the first
-// time it is shown.
+// time it is shown. The filter query carries across tabs.
 func (w *Widget) switchTab(delta int) tea.Cmd {
 	w.active = (w.active + delta + len(w.tabs)) % len(w.tabs)
 	if t := &w.tabs[w.active]; !t.loaded && !t.loading {
@@ -186,17 +273,44 @@ func (w *Widget) switchTab(delta int) tea.Cmd {
 }
 
 func (w *Widget) openSelected() tea.Cmd {
-	t := &w.tabs[w.active]
-	if len(t.items) == 0 {
+	vis := w.visible(w.tabs[w.active])
+	if len(vis) == 0 {
 		return nil
 	}
-	return openCmd(w.runner, t.items[t.cursor].URL)
+	c := w.tabs[w.active].cursor
+	if c >= len(vis) {
+		c = len(vis) - 1
+	}
+	return openCmd(w.runner, vis[c].URL)
 }
 
-// View renders the tab bar and the active tab's list (or its loading/error/
-// empty state), clipped to the given inner size.
+// visible applies the active filter to a tab's items. An empty query returns
+// all items unchanged (no allocation).
+func (w *Widget) visible(t tabState) []domain.Item {
+	if w.filterQuery == "" {
+		return t.items
+	}
+	out := make([]domain.Item, 0, len(t.items))
+	for _, it := range t.items {
+		if fuzzy.Match(w.filterQuery, it.Title+" "+it.Subtitle) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// View renders the tab bar, an optional filter line, and the active tab's list
+// (or its loading/error/empty/no-match state), clipped to the given inner size.
 func (w *Widget) View(width, height int) string {
 	t := w.tabs[w.active]
+	vis := w.visible(t)
+
+	header := w.tabBar(width)
+	reserved := 2 // tab bar + spacing
+	if w.filtering || w.filterQuery != "" {
+		header = lipgloss.JoinVertical(lipgloss.Left, header, w.filterLine(t, vis))
+		reserved = 3
+	}
 
 	var body string
 	switch {
@@ -206,11 +320,13 @@ func (w *Widget) View(width, height int) string {
 		body = "Error: " + t.err.Error()
 	case len(t.items) == 0:
 		body = w.styles.Meta.Render("No pull requests.")
+	case len(vis) == 0:
+		body = w.styles.Meta.Render("No matches.")
 	default:
-		body = w.renderItems(t, height-2) // -2 for tab bar + spacing
+		body = w.renderItems(vis, t.cursor, height-reserved)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, w.tabBar(width), "", body)
+	return lipgloss.JoinVertical(lipgloss.Left, header, "", body)
 }
 
 func (w *Widget) tabBar(width int) string {
@@ -229,23 +345,32 @@ func (w *Widget) tabBar(width int) string {
 	return bar
 }
 
-func (w *Widget) renderItems(t tabState, maxRows int) string {
+// filterLine shows the current query, a caret while typing, and a match count.
+func (w *Widget) filterLine(t tabState, vis []domain.Item) string {
+	caret := ""
+	if w.filtering {
+		caret = "▌"
+	}
+	return w.styles.Meta.Render(fmt.Sprintf("/%s%s  (%d/%d)", w.filterQuery, caret, len(vis), len(t.items)))
+}
+
+func (w *Widget) renderItems(items []domain.Item, cursor, maxRows int) string {
 	if maxRows < 1 {
-		maxRows = len(t.items)
+		maxRows = len(items)
 	}
 	var b strings.Builder
-	for i, item := range t.items {
+	for i, item := range items {
 		if i >= maxRows {
-			fmt.Fprintf(&b, "  …and %d more\n", len(t.items)-i)
+			fmt.Fprintf(&b, "  …and %d more\n", len(items)-i)
 			break
 		}
-		cursor := "  "
+		prefix := "  "
 		title := item.Title
-		if i == t.cursor {
-			cursor = "> "
+		if i == cursor {
+			prefix = "> "
 			title = w.styles.SelectedItem.Render(item.Title)
 		}
-		fmt.Fprintf(&b, "%s%s\n", cursor, title)
+		fmt.Fprintf(&b, "%s%s\n", prefix, title)
 		fmt.Fprintf(&b, "  %s\n", item.Subtitle)
 		fmt.Fprintf(&b, "  %s\n", w.styles.Meta.Render(item.Meta))
 	}

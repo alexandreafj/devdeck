@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/alexandreafj/devdeck/internal/config"
 	"github.com/alexandreafj/devdeck/internal/exec/exectest"
@@ -52,6 +53,23 @@ func TestBuildSkipsUnknownTypes(t *testing.T) {
 	)
 	if got := len(Build(c, &exectest.FakeRunner{})); got != 1 {
 		t.Errorf("built %d widgets, want 1 (unknown type skipped)", got)
+	}
+}
+
+func TestParseRefresh(t *testing.T) {
+	cases := map[string]time.Duration{
+		"1m":  time.Minute,
+		"30s": 30 * time.Second,
+		"5m":  5 * time.Minute,
+		"":    0,
+		"abc": 0,
+		"-5s": 0,
+		"0":   0,
+	}
+	for in, want := range cases {
+		if got := parseRefresh(in); got != want {
+			t.Errorf("parseRefresh(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 
