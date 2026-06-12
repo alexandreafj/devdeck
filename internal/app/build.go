@@ -5,6 +5,9 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/alexandreafj/devdeck/internal/config"
@@ -52,12 +55,39 @@ func buildWidget(index int, wc config.WidgetConfig, runner exec.CommandRunner) u
 			New(id, title, github.NewClient(runner), runner, github.ParseModes(wc.Modes)).
 			SetRefreshInterval(parseRefresh(wc.Refresh))
 	case "google_calendar":
+		client := gcal.NewClient(expandUser(wc.CredentialsPath), expandUser(wc.TokenPath))
 		return calendar.
-			New(id, title, gcal.NewClient(), runner).
+			New(id, title, client, runner).
 			SetRefreshInterval(parseRefresh(wc.Refresh))
 	default:
 		return nil
 	}
+}
+
+// CalendarAuthPaths returns the credentials and token paths configured for the
+// first google_calendar widget (with a leading "~/" expanded), or empty strings
+// when none is configured — in which case callers fall back to the default
+// locations. `devdeck auth google` uses this so auth and the widget agree.
+func CalendarAuthPaths(cfg config.Config) (credentials, token string) {
+	for _, wc := range cfg.Widgets {
+		if wc.Type == "google_calendar" {
+			return expandUser(wc.CredentialsPath), expandUser(wc.TokenPath)
+		}
+	}
+	return "", ""
+}
+
+// expandUser expands a leading "~/" in path to the user's home directory. Other
+// paths (including empty) are returned unchanged.
+func expandUser(path string) string {
+	if path == "" || !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[2:])
 }
 
 // parseRefresh interprets a widget's refresh interval (e.g. "1m", "30s"). An

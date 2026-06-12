@@ -102,9 +102,20 @@ func TestFetchEventsNotConnectedWithoutCredentials(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config")) // empty: no credentials
-	c := NewClient()
+	c := NewClient("", "")
 	_, err := c.FetchEvents(context.Background(), time.Now(), time.Now().Add(time.Hour))
 	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("FetchEvents without credentials = %v, want ErrNotConnected", err)
+	}
+}
+
+func TestFetchEventsUsesConfiguredCredentialsPath(t *testing.T) {
+	// A configured (but absent) credentials path is honored and yields
+	// ErrNotConnected, independent of the default config dir.
+	dir := t.TempDir()
+	c := NewClient(filepath.Join(dir, "mine.json"), filepath.Join(dir, "tok.json"))
+	_, err := c.FetchEvents(context.Background(), time.Now(), time.Now().Add(time.Hour))
+	if !errors.Is(err, ErrNotConnected) {
+		t.Errorf("FetchEvents with a missing configured credentials path = %v, want ErrNotConnected", err)
 	}
 }

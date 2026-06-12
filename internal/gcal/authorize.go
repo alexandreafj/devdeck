@@ -36,14 +36,15 @@ const authTimeout = 5 * time.Minute
 // Authorize runs the guided `devdeck auth google` flow: it walks the user
 // through creating a Google OAuth client (if they have not already), installs the
 // downloaded credentials, then opens the browser for consent and caches the
-// resulting token. It orchestrates the testable setup helpers and the
-// I/O-bound OAuth exchange.
-func Authorize(ctx context.Context, runner exec.CommandRunner) error {
-	credsPath, err := CredentialsPath()
+// resulting token. credentialsPath and tokenPath may be empty to use the default
+// locations in the config dir. It orchestrates the testable setup helpers and
+// the I/O-bound OAuth exchange.
+func Authorize(ctx context.Context, runner exec.CommandRunner, credentialsPath, tokenPath string) error {
+	credsPath, err := resolvePath(credentialsPath, CredentialsPath)
 	if err != nil {
 		return err
 	}
-	tokenPath, err := TokenPath()
+	tokenPath, err = resolvePath(tokenPath, TokenPath)
 	if err != nil {
 		return err
 	}
@@ -273,7 +274,7 @@ func runOAuth(ctx context.Context, out io.Writer, runner exec.CommandRunner, cfg
 	authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	fmt.Fprintln(out, "\nOpening your browser to approve calendar access…")
 	fmt.Fprintln(out, "If it doesn't open, visit:\n"+authURL)
-	fmt.Fprintln(out, "\n(If you see an \"unverified app\" screen, choose your account → Advanced → \"Go to DevDeck\".)")
+	fmt.Fprintln(out, "\n(The \"unverified app\" screen is your own OAuth app — choose your account → Advanced → \"Go to <your app name> (unsafe)\".)")
 	if err := browser.Open(ctx, runner, authURL); err != nil {
 		fmt.Fprintln(out, "(couldn't open the browser automatically — use the link above)")
 	}

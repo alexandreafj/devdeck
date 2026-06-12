@@ -29,23 +29,28 @@ type EventProvider interface {
 // resolved into loc for grouping and display.
 type Client struct {
 	loc *time.Location
+	// credentialsPath/tokenPath override the default config-dir locations so a
+	// user can supply their own OAuth client JSON. Empty means use the defaults.
+	credentialsPath string
+	tokenPath       string
 }
 
 // NewClient returns a Client that resolves event times in the local timezone
-// (matching the dashboard's clock).
-func NewClient() *Client {
-	return &Client{loc: time.Local}
+// (matching the dashboard's clock). credentialsPath and tokenPath may be empty
+// to use the default locations in the config dir.
+func NewClient(credentialsPath, tokenPath string) *Client {
+	return &Client{loc: time.Local, credentialsPath: credentialsPath, tokenPath: tokenPath}
 }
 
 // FetchEvents returns this week's events. It returns ErrNotConnected when the
 // credentials or token are missing, so the widget can prompt the user to run
 // `devdeck auth google`.
 func (c *Client) FetchEvents(ctx context.Context, start, end time.Time) ([]Event, error) {
-	credsPath, err := CredentialsPath()
+	credsPath, err := resolvePath(c.credentialsPath, CredentialsPath)
 	if err != nil {
 		return nil, err
 	}
-	tokenPath, err := TokenPath()
+	tokenPath, err := resolvePath(c.tokenPath, TokenPath)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +98,14 @@ func fetchEvents(ctx context.Context, doer httpDoer, start, end time.Time, loc *
 		return nil, fmt.Errorf("calendar API: %s", resp.Status)
 	}
 	return DecodeEvents(body, loc)
+}
+
+// resolvePath returns p when set, otherwise the default produced by fn.
+func resolvePath(p string, fn func() (string, error)) (string, error) {
+	if p != "" {
+		return p, nil
+	}
+	return fn()
 }
 
 // eventsURL builds the events.list query for a single-expanded, start-ordered

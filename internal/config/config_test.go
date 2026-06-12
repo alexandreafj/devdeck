@@ -90,6 +90,51 @@ func TestLoadEmptyWidgetsGetsDefaultWidget(t *testing.T) {
 	}
 }
 
+func TestEnsureCreatesScaffoldWhenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "config.yml") // parent must be created
+	created, err := Ensure(path)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if !created {
+		t.Error("Ensure should report creating a new file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("scaffold not written: %v", err)
+	}
+	for _, want := range []string{"github_prs", "google_calendar", "Github Pull Requests"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("scaffold missing %q", want)
+		}
+	}
+
+	// The scaffold must parse and yield the GitHub widget (Calendar commented).
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("scaffold should be valid YAML: %v", err)
+	}
+	if len(cfg.Widgets) != 1 || cfg.Widgets[0].Type != "github_prs" || cfg.Widgets[0].Title != "Github Pull Requests" {
+		t.Errorf("scaffold widgets = %+v, want a single Github Pull Requests widget", cfg.Widgets)
+	}
+}
+
+func TestEnsureLeavesExistingFileUntouched(t *testing.T) {
+	const custom = "layout:\n  max_widgets: 2\nwidgets: []\n"
+	path := writeTemp(t, custom)
+	created, err := Ensure(path)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if created {
+		t.Error("Ensure must not overwrite an existing file")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != custom {
+		t.Errorf("existing config was modified:\n%s", got)
+	}
+}
+
 func TestDefaultPathEndsWithDevdeckConfig(t *testing.T) {
 	p, err := DefaultPath()
 	if err != nil {

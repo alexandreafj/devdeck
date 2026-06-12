@@ -74,16 +74,17 @@ Google Calendar widget via config after connecting your account (see below).
 
 ## Configuration
 
-DevDeck runs with sensible defaults and needs no config. To customise, copy
-[`config.example.yml`](./config.example.yml) to:
+On first run DevDeck **writes a documented starter `config.yml`** you can edit
+(see [`config.example.yml`](./config.example.yml) for the same content):
 
 - **macOS:** `~/Library/Application Support/devdeck/config.yml`
 - **Linux:** `~/.config/devdeck/config.yml`
 
-You can set the visible widgets, their titles, and which PR sections to show.
-The list also **auto-refreshes** on a timer (default every 60s; set per widget
-with `refresh:` — e.g. `30s`, `5m`, or omit/`0` to disable), so PRs you've
-already handled drop off without pressing `r`.
+Choose your widgets there — the dashboard shows up to 4, left to right. **Add,
+remove, reorder, or duplicate** entries under `widgets:` and restart `devdeck`;
+each widget authenticates on its own (`gh auth login` for GitHub,
+`devdeck auth google` for Calendar). The list also **auto-refreshes** on a timer
+(set per widget with `refresh:` — e.g. `30s`, `5m`, or omit/`0` to disable).
 
 ## Google Calendar setup
 

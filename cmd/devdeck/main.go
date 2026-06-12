@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -35,19 +36,38 @@ func run(args []string) error {
 	return runDashboard()
 }
 
-// runAuth handles `devdeck auth google`, connecting the user's Google account
-// for the Calendar widget.
+// runAuth handles `devdeck auth google [path/to/credentials.json]`, connecting
+// the user's Google account for the Calendar widget. Credentials/token paths come
+// from the configured google_calendar widget (so auth and the widget agree); an
+// optional path argument overrides the credentials location.
 func runAuth(args []string) error {
-	if len(args) != 1 || args[0] != "google" {
-		return fmt.Errorf("usage: devdeck auth google")
+	if len(args) < 1 || args[0] != "google" {
+		return fmt.Errorf("usage: devdeck auth google [path/to/credentials.json]")
 	}
-	return gcal.Authorize(context.Background(), exec.New())
+
+	var credsPath, tokenPath string
+	if path, err := config.DefaultPath(); err == nil {
+		if cfg, err := config.Load(path); err == nil {
+			credsPath, tokenPath = app.CalendarAuthPaths(cfg)
+		}
+	}
+	if len(args) >= 2 && strings.TrimSpace(args[1]) != "" {
+		credsPath = strings.TrimSpace(args[1])
+	}
+
+	return gcal.Authorize(context.Background(), exec.New(), credsPath, tokenPath)
 }
 
 func runDashboard() error {
 	path, err := config.DefaultPath()
 	if err != nil {
 		return err
+	}
+	// Always materialize a config file the user can edit to add/remove widgets.
+	if created, err := config.Ensure(path); err != nil {
+		fmt.Fprintln(os.Stderr, "devdeck: could not create config:", err)
+	} else if created {
+		fmt.Fprintln(os.Stderr, "devdeck: created a starter config at", path)
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
