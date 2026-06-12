@@ -1,40 +1,238 @@
 package gcal
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 
 	"github.com/alexandreafj/devdeck/internal/browser"
 	"github.com/alexandreafj/devdeck/internal/exec"
 )
 
-// Authorize runs the interactive OAuth flow used by `devdeck auth google`: it
-// opens the browser to Google's consent screen, captures the authorization code
-// on a loopback HTTP server, exchanges it for a token, and caches the token for
-// the widget to use. It is inherently I/O-bound (network + browser) and so is
-// kept thin and outside the unit-tested logic.
+// Console deep links used by the setup walkthrough. They are stable entry points
+// into the Google Cloud console for the one-time OAuth client setup.
+const (
+	enableAPIURL   = "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com"
+	consentURL     = "https://console.cloud.google.com/apis/credentials/consent"
+	credentialsURL = "https://console.cloud.google.com/apis/credentials"
+)
+
+// authTimeout bounds how long we wait for the user to finish the browser consent.
+const authTimeout = 5 * time.Minute
+
+// Authorize runs the guided `devdeck auth google` flow: it walks the user
+// through creating a Google OAuth client (if they have not already), installs the
+// downloaded credentials, then opens the browser for consent and caches the
+// resulting token. It orchestrates the testable setup helpers and the
+// I/O-bound OAuth exchange.
 func Authorize(ctx context.Context, runner exec.CommandRunner) error {
 	credsPath, err := CredentialsPath()
 	if err != nil {
 		return err
 	}
-	cfg, err := LoadCredentials(credsPath)
+	tokenPath, err := TokenPath()
 	if err != nil {
-		return fmt.Errorf("%w\nCreate an OAuth 'Desktop' client in Google Cloud (Calendar API enabled) and save it to %s", err, credsPath)
+		return err
+	}
+	downloads, _ := downloadsDir() // best-effort; empty disables auto-detect
+
+	cfg, err := ensureCredentials(ctx, os.Stdin, os.Stdout, runner, credsPath, downloads)
+	if err != nil {
+		return err
+	}
+	return runOAuth(ctx, os.Stdout, runner, cfg, tokenPath)
+}
+
+// ensureCredentials returns a ready OAuth config. If a valid credentials file is
+// already present it is used as-is; otherwise the user is walked through creating
+// one and the downloaded JSON is auto-detected (from downloads) or supplied by
+// path, validated, and installed to credsPath. It performs no network I/O, so it
+// is unit-tested by driving in/out with scripted input.
+func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner exec.CommandRunner, credsPath, downloads string) (*oauth2.Config, error) {
+	if cfg, err := LoadCredentials(credsPath); err == nil {
+		fmt.Fprintf(out, "Using existing Google credentials at %s\n", credsPath)
+		return cfg, nil
 	}
 
+	printSetupGuide(out)
+	if err := browser.Open(ctx, runner, enableAPIURL); err != nil {
+		fmt.Fprintln(out, "(couldn't open your browser automatically — use the links above)")
+	}
+
+	scanner := bufio.NewScanner(in)
+	for {
+		fmt.Fprintf(out, "\nWhen the JSON has downloaded, press Enter to auto-detect it in %s,\n"+
+			"or paste the file's full path here (Ctrl+C to cancel): ", displayDir(downloads))
+		if !scanner.Scan() {
+			return nil, fmt.Errorf("setup cancelled")
+		}
+
+		src := strings.TrimSpace(scanner.Text())
+		src = strings.Trim(src, "'\"") // tolerate shell-style quoted/dragged paths
+		if src == "" {
+			cand, ok := findCredentialCandidate(downloads)
+			if !ok {
+				fmt.Fprintf(out, "Couldn't find an OAuth 'Desktop' client JSON in %s yet.\n"+
+					"Download it (step 3) then press Enter again, or paste its full path.\n", displayDir(downloads))
+				continue
+			}
+			src = cand
+			fmt.Fprintf(out, "Found %s\n", cand)
+		}
+
+		if err := installCredentials(src, credsPath); err != nil {
+			fmt.Fprintf(out, "That file didn't work: %v\nLet's try again.\n", err)
+			continue
+		}
+		cfg, err := LoadCredentials(credsPath)
+		if err != nil {
+			fmt.Fprintf(out, "Saved file couldn't be loaded: %v\nLet's try again.\n", err)
+			continue
+		}
+		fmt.Fprintf(out, "✓ Saved your credentials to %s\n", credsPath)
+		return cfg, nil
+	}
+}
+
+// printSetupGuide prints the one-time Google Cloud steps in plain language.
+func printSetupGuide(out io.Writer) {
+	fmt.Fprint(out, `
+Let's connect Google Calendar (one-time setup, ~2 minutes).
+
+DevDeck reads your calendar with your own Google OAuth client — nothing is sent
+to anyone but Google. Three steps in the Google Cloud console:
+
+  1. Enable the Calendar API (opening in your browser now):
+       `+enableAPIURL+`
+     Pick or create a project, then click "Enable".
+
+  2. Configure the OAuth consent screen — User type "External", and add YOUR
+     Google address under "Test users":
+       `+consentURL+`
+
+  3. Create the client:
+       `+credentialsURL+`
+     → "Create credentials" → "OAuth client ID"
+     → Application type: "Desktop app" → Create → "Download JSON".
+`)
+}
+
+// findCredentialCandidate returns the newest OAuth "Desktop" client JSON in dir
+// (Google names these "client_secret_*.apps.googleusercontent.com.json"), or
+// ok=false if none is found. Files that don't validate as a desktop client are
+// ignored.
+func findCredentialCandidate(dir string) (string, bool) {
+	if dir == "" {
+		return "", false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	var best string
+	var bestMod time.Time
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		if !strings.Contains(name, "client_secret") && !strings.Contains(name, "googleusercontent") {
+			continue
+		}
+		full := filepath.Join(dir, name)
+		data, err := os.ReadFile(full)
+		if err != nil || validateDesktopCredentials(data) != nil {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if best == "" || info.ModTime().After(bestMod) {
+			best, bestMod = full, info.ModTime()
+		}
+	}
+	return best, best != ""
+}
+
+// installCredentials validates that src is an OAuth "Desktop" client JSON and
+// copies it to dst (creating the parent directory), so the widget and the OAuth
+// flow can read it from the standard location.
+func installCredentials(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", src, err)
+	}
+	if err := validateDesktopCredentials(data); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", dst, err)
+	}
+	return nil
+}
+
+// validateDesktopCredentials checks that data is a Google OAuth client JSON of
+// the "Desktop app" type (the only kind that supports the loopback redirect this
+// flow uses). It returns a user-actionable error otherwise.
+func validateDesktopCredentials(data []byte) error {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return fmt.Errorf("not valid JSON")
+	}
+	if _, ok := probe["installed"]; !ok {
+		if _, isWeb := probe["web"]; isWeb {
+			return fmt.Errorf("this is a 'Web application' client — create one of type 'Desktop app' instead")
+		}
+		return fmt.Errorf("not a Google OAuth client file (missing the 'installed' section)")
+	}
+	if _, err := google.ConfigFromJSON(data, calendarScope); err != nil {
+		return fmt.Errorf("invalid OAuth client JSON: %w", err)
+	}
+	return nil
+}
+
+// downloadsDir returns the user's Downloads directory (best effort).
+func downloadsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "Downloads"), nil
+}
+
+// displayDir renders a directory for prompts, falling back to a generic label.
+func displayDir(dir string) string {
+	if dir == "" {
+		return "your Downloads folder"
+	}
+	return dir
+}
+
+// runOAuth performs the browser consent and token exchange. It is the
+// network-bound part of the flow and is kept thin (outside the unit tests).
+func runOAuth(ctx context.Context, out io.Writer, runner exec.CommandRunner, cfg *oauth2.Config, tokenPath string) error {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("start local server: %w", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	cfg.RedirectURL = fmt.Sprintf("http://127.0.0.1:%d/", listener.Addr().(*net.TCPAddr).Port)
 
 	state, err := randomState()
@@ -49,10 +247,11 @@ func Authorize(ctx context.Context, runner exec.CommandRunner) error {
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
 	authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
-	fmt.Println("Opening your browser to authorize DevDeck…")
-	fmt.Println("If it doesn't open, visit:\n" + authURL)
+	fmt.Fprintln(out, "\nOpening your browser to approve calendar access…")
+	fmt.Fprintln(out, "If it doesn't open, visit:\n"+authURL)
+	fmt.Fprintln(out, "\n(If you see an \"unverified app\" screen, choose your account → Advanced → \"Go to DevDeck\".)")
 	if err := browser.Open(ctx, runner, authURL); err != nil {
-		fmt.Println("(could not open the browser automatically — use the link above)")
+		fmt.Fprintln(out, "(couldn't open the browser automatically — use the link above)")
 	}
 
 	var code string
@@ -60,7 +259,7 @@ func Authorize(ctx context.Context, runner exec.CommandRunner) error {
 	case code = <-codeCh:
 	case err := <-errCh:
 		return err
-	case <-time.After(3 * time.Minute):
+	case <-time.After(authTimeout):
 		return fmt.Errorf("timed out waiting for authorization")
 	}
 
@@ -68,15 +267,13 @@ func Authorize(ctx context.Context, runner exec.CommandRunner) error {
 	if err != nil {
 		return fmt.Errorf("exchange authorization code: %w", err)
 	}
-
-	tokenPath, err := TokenPath()
-	if err != nil {
-		return err
-	}
 	if err := SaveToken(tokenPath, tok); err != nil {
 		return err
 	}
-	fmt.Println("Connected. Token saved to", tokenPath)
+
+	fmt.Fprintf(out, "\n✓ Connected! Token saved to %s\n", tokenPath)
+	fmt.Fprintln(out, "Add the widget to your config.yml and run devdeck:")
+	fmt.Fprintln(out, "  widgets:\n    - type: google_calendar\n      title: \"Google Calendar\"\n      refresh: 5m")
 	return nil
 }
 

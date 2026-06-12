@@ -89,31 +89,40 @@ already handled drop off without pressing `r`.
 
 The Google Calendar widget reads your primary calendar with the read-only
 `calendar.readonly` scope. Because DevDeck is a desktop app, you supply your own
-OAuth client (nothing secret is shipped in this repo):
+Google OAuth client (nothing secret is shipped in this repo) — and
+`devdeck auth google` **walks you through it**:
 
-1. In the [Google Cloud console](https://console.cloud.google.com/) create a
-   project and **enable the Google Calendar API**.
-2. Under **APIs & Services → Credentials**, create an **OAuth client ID** of type
-   **Desktop app** and download its JSON.
-3. Save that file as `google-credentials.json` in your DevDeck config directory:
-   - **macOS:** `~/Library/Application Support/devdeck/google-credentials.json`
-   - **Linux:** `~/.config/devdeck/google-credentials.json`
-4. Connect your account:
+```sh
+devdeck auth google
+```
 
-   ```sh
-   devdeck auth google
-   ```
+The guided setup:
 
-   This opens your browser for consent, then caches a token next to the
-   credentials (`google-token.json`). The token refreshes automatically.
-5. Add the widget to your `config.yml` (see [`config.example.yml`](./config.example.yml)):
+1. Opens the Google Cloud console to **enable the Calendar API**, and prints the
+   links to configure the **OAuth consent screen** (User type *External*; add your
+   own address as a *Test user*) and to **create an OAuth client ID** of type
+   **Desktop app** → *Download JSON*.
+2. **Auto-detects** the downloaded `client_secret_*.json` in your `~/Downloads`
+   (or paste/drag its path) and **copies it into DevDeck's own config folder** as
+   `google-credentials.json`:
+   - **macOS:** `~/Library/Application Support/devdeck/`
+   - **Linux:** `~/.config/devdeck/`
 
-   ```yaml
-   widgets:
-     - type: google_calendar
-       title: "Google Calendar"
-       refresh: 5m
-   ```
+   Because DevDeck keeps its own copy, you can delete the downloaded file
+   afterwards without affecting DevDeck.
+3. Opens your browser for consent and caches the token next to the credentials
+   (`google-token.json`); it refreshes automatically.
+
+Re-running `devdeck auth google` later reuses the saved credentials and just
+refreshes consent. Then add the widget to your `config.yml`
+(see [`config.example.yml`](./config.example.yml)):
+
+```yaml
+widgets:
+  - type: google_calendar
+    title: "Google Calendar"
+    refresh: 5m
+```
 
 Run `devdeck` — it shows this week's meetings grouped under **Today**,
 **Tomorrow**, and `Mon Jun 15`-style headers. Until you connect, the widget shows

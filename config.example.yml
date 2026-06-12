@@ -20,11 +20,10 @@ widgets:
     modes: [authored, review_requested, assigned]
     refresh: 1m             # auto-refresh interval (e.g. 30s, 1m, 5m); omit/0 to disable
 
-  # Google Calendar — this week's meetings grouped by day. Requires a one-time
-  # `devdeck auth google` (see the README): create a Google Cloud OAuth "Desktop"
-  # client with the Calendar API enabled and save its credentials JSON to
-  #   macOS:  ~/Library/Application Support/devdeck/google-credentials.json
-  #   Linux:  ~/.config/devdeck/google-credentials.json
+  # Google Calendar — this week's meetings grouped by day. Run the one-time
+  # guided setup `devdeck auth google` first: it walks you through creating a
+  # Google OAuth "Desktop" client, auto-detects the downloaded JSON, copies it
+  # into DevDeck's config folder, and connects your account (see the README).
   - type: google_calendar
     title: "Google Calendar"
     refresh: 5m             # auto-refresh interval; omit/0 to disable
