@@ -3,6 +3,11 @@ package gcal
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +24,33 @@ const sampleWebCredentials = `{"web":{
 	"auth_uri":"https://accounts.google.com/o/oauth2/auth",
 	"token_uri":"https://oauth2.googleapis.com/token"}}`
 
+// sampleServiceAccount is a valid service account JSON (with a freshly generated
+// throwaway RSA key) so JWTConfigFromJSON parses it in tests.
+var sampleServiceAccount = mustServiceAccount("svc@proj.iam.gserviceaccount.com")
+
+func mustServiceAccount(email string) string {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		panic(err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	b, err := json.Marshal(map[string]string{
+		"type":         "service_account",
+		"client_email": email,
+		"client_id":    "123",
+		"private_key":  string(keyPEM),
+		"token_uri":    "https://oauth2.googleapis.com/token",
+	})
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -29,19 +61,37 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func TestValidateDesktopCredentials(t *testing.T) {
-	if err := validateDesktopCredentials([]byte(sampleCredentials)); err != nil {
+func TestValidateCredentials(t *testing.T) {
+	if err := validateCredentials([]byte(sampleCredentials)); err != nil {
 		t.Errorf("desktop client should validate, got %v", err)
 	}
-	err := validateDesktopCredentials([]byte(sampleWebCredentials))
+	if err := validateCredentials([]byte(sampleServiceAccount)); err != nil {
+		t.Errorf("service account should validate, got %v", err)
+	}
+	err := validateCredentials([]byte(sampleWebCredentials))
 	if err == nil || !strings.Contains(err.Error(), "Desktop") {
 		t.Errorf("web client should be rejected with a Desktop hint, got %v", err)
 	}
-	if validateDesktopCredentials([]byte(`{"other":{}}`)) == nil {
-		t.Error("JSON without installed/web should be rejected")
+	if validateCredentials([]byte(`{"other":{}}`)) == nil {
+		t.Error("JSON without installed/web/service_account should be rejected")
 	}
-	if validateDesktopCredentials([]byte("not json")) == nil {
+	if validateCredentials([]byte("not json")) == nil {
 		t.Error("invalid JSON should be rejected")
+	}
+}
+
+func TestCredentialKind(t *testing.T) {
+	if credentialKind([]byte(sampleCredentials)) != credOAuthDesktop {
+		t.Error("installed client should be credOAuthDesktop")
+	}
+	if credentialKind([]byte(sampleServiceAccount)) != credServiceAccount {
+		t.Error("service_account should be credServiceAccount")
+	}
+	if credentialKind([]byte(sampleWebCredentials)) != credUnknown {
+		t.Error("web client should be credUnknown")
+	}
+	if got := serviceAccountEmail([]byte(sampleServiceAccount)); got != "svc@proj.iam.gserviceaccount.com" {
+		t.Errorf("serviceAccountEmail = %q, want the client_email", got)
 	}
 }
 
@@ -219,6 +269,35 @@ func TestEnsureCredentialsRetriesAfterBadFile(t *testing.T) {
 	}
 	if _, statErr := os.Stat(credsPath); statErr != nil {
 		t.Errorf("the good file should eventually install: %v", statErr)
+	}
+}
+
+func TestEnsureCredentialsInstallsServiceAccount(t *testing.T) {
+	credsPath := filepath.Join(t.TempDir(), "google-credentials.json")
+	downloads := t.TempDir()
+	// The user's renamed service-account download.
+	writeFile(t, filepath.Join(downloads, "Calendar API Projects.json"), sampleServiceAccount)
+
+	out := &bytes.Buffer{}
+	data, err := ensureCredentials(context.Background(), strings.NewReader("\n"), out,
+		&exectest.FakeRunner{}, credsPath, downloads)
+	if err != nil {
+		t.Fatalf("ensureCredentials: %v", err)
+	}
+	if credentialKind(data) != credServiceAccount {
+		t.Error("expected a service account to be detected and installed")
+	}
+	if _, statErr := os.Stat(credsPath); statErr != nil {
+		t.Errorf("service-account credentials should be copied into place: %v", statErr)
+	}
+}
+
+func TestPrintServiceAccountNextSteps(t *testing.T) {
+	out := &bytes.Buffer{}
+	printServiceAccountNextSteps(out, []byte(sampleServiceAccount))
+	s := out.String()
+	if !strings.Contains(s, "svc@proj.iam.gserviceaccount.com") || !strings.Contains(s, "calendar_id") {
+		t.Errorf("next steps should mention the service account email and calendar_id:\n%s", s)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -50,22 +49,34 @@ func Authorize(ctx context.Context, runner exec.CommandRunner, credentialsPath, 
 	}
 	downloads, _ := downloadsDir() // best-effort; empty disables auto-detect
 
-	cfg, err := ensureCredentials(ctx, os.Stdin, os.Stdout, runner, credsPath, downloads)
+	data, err := ensureCredentials(ctx, os.Stdin, os.Stdout, runner, credsPath, downloads)
 	if err != nil {
 		return err
+	}
+
+	// A service account needs no browser sign-in — just calendar sharing.
+	if credentialKind(data) == credServiceAccount {
+		printServiceAccountNextSteps(os.Stdout, data)
+		return nil
+	}
+
+	cfg, err := google.ConfigFromJSON(data, calendarScope)
+	if err != nil {
+		return fmt.Errorf("parse OAuth client: %w", err)
 	}
 	return runOAuth(ctx, os.Stdout, runner, cfg, tokenPath)
 }
 
-// ensureCredentials returns a ready OAuth config. If a valid credentials file is
+// ensureCredentials returns the raw credentials JSON to use. If a valid file is
 // already present it is used as-is; otherwise the user is walked through creating
 // one and the downloaded JSON is auto-detected (from downloads) or supplied by
-// path, validated, and installed to credsPath. It performs no network I/O, so it
-// is unit-tested by driving in/out with scripted input.
-func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner exec.CommandRunner, credsPath, downloads string) (*oauth2.Config, error) {
-	if cfg, err := LoadCredentials(credsPath); err == nil {
+// path, validated (OAuth "Desktop" client or service account), and installed to
+// credsPath. It performs no network I/O, so it is unit-tested by driving in/out
+// with scripted input.
+func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner exec.CommandRunner, credsPath, downloads string) ([]byte, error) {
+	if data, err := os.ReadFile(credsPath); err == nil && validateCredentials(data) == nil {
 		fmt.Fprintf(out, "Using existing Google credentials at %s\n", credsPath)
-		return cfg, nil
+		return data, nil
 	}
 
 	printSetupGuide(out)
@@ -85,8 +96,8 @@ func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner 
 		if src == "" {
 			cand, ok := findCredentialCandidate(downloads)
 			if !ok {
-				fmt.Fprintf(out, "Couldn't find an OAuth 'Desktop' client JSON in %s yet.\n"+
-					"Download it (step 3) then press Enter again, or paste its full path.\n", displayDir(downloads))
+				fmt.Fprintf(out, "Couldn't find a Google credentials JSON in %s yet.\n"+
+					"Download it then press Enter again, or paste its full path.\n", displayDir(downloads))
 				continue
 			}
 			src = cand
@@ -97,43 +108,49 @@ func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner 
 			fmt.Fprintf(out, "That file didn't work: %v\nLet's try again.\n", err)
 			continue
 		}
-		cfg, err := LoadCredentials(credsPath)
+		data, err := os.ReadFile(credsPath)
 		if err != nil {
-			fmt.Fprintf(out, "Saved file couldn't be loaded: %v\nLet's try again.\n", err)
+			fmt.Fprintf(out, "Saved file couldn't be read: %v\nLet's try again.\n", err)
 			continue
 		}
 		fmt.Fprintf(out, "✓ Saved your credentials to %s\n", credsPath)
-		return cfg, nil
+		return data, nil
 	}
 }
 
-// printSetupGuide prints the one-time Google Cloud steps in plain language.
+// printSetupGuide prints the one-time Google Cloud steps in plain language. It
+// covers both supported credential types; DevDeck auto-detects which you provide.
 func printSetupGuide(out io.Writer) {
 	fmt.Fprint(out, `
-Let's connect Google Calendar (one-time setup, ~2 minutes).
+Let's connect Google Calendar (one-time setup).
 
-DevDeck reads your calendar with your own Google OAuth client — nothing is sent
-to anyone but Google. Three steps in the Google Cloud console:
+DevDeck uses YOUR OWN Google credentials — it ships none. Two options (pick one):
+  • OAuth "Desktop app" client — browser sign-in; reads your "primary" calendar.
+  • Service account — no browser; you share your calendar with it.
+
+In the Google Cloud console:
 
   1. Enable the Calendar API (opening in your browser now):
        `+enableAPIURL+`
      Pick or create a project, then click "Enable".
 
-  2. Configure the OAuth consent screen — User type "External", and add YOUR
-     Google address under "Test users":
-       `+consentURL+`
-
-  3. Create the client:
+  2. Create your credentials:
        `+credentialsURL+`
-     → "Create credentials" → "OAuth client ID"
-     → Application type: "Desktop app" → Create → "Download JSON".
+     OAuth:           "Create credentials" → "OAuth client ID"
+                      → "Desktop app" → Create → "Download JSON".
+                      (first set up the consent screen — User type "External",
+                       add your address as a Test user: `+consentURL+`)
+     Service account: "Create credentials" → "Service account" → open it →
+                      "Keys" → "Add key" → "JSON".
+
+Download/save the JSON, then come back here — I'll detect it next.
 `)
 }
 
-// findCredentialCandidate returns the newest OAuth "Desktop" client JSON in dir,
-// or ok=false if none is found. It matches on file *contents* (any .json that
-// validates as a desktop client), so a file the user renamed still gets picked
-// up — not just Google's default "client_secret_*.json" name.
+// findCredentialCandidate returns the newest Google credentials JSON in dir
+// (OAuth "Desktop" client or service account), or ok=false if none is found. It
+// matches on file *contents*, so a file the user renamed still gets picked up —
+// not just Google's default "client_secret_*.json" name.
 func findCredentialCandidate(dir string) (string, bool) {
 	if dir == "" {
 		return "", false
@@ -150,7 +167,7 @@ func findCredentialCandidate(dir string) (string, bool) {
 		}
 		full := filepath.Join(dir, e.Name())
 		data, err := os.ReadFile(full)
-		if err != nil || validateDesktopCredentials(data) != nil {
+		if err != nil || validateCredentials(data) != nil {
 			continue
 		}
 		info, err := e.Info()
@@ -164,15 +181,15 @@ func findCredentialCandidate(dir string) (string, bool) {
 	return best, best != ""
 }
 
-// installCredentials validates that src is an OAuth "Desktop" client JSON and
-// copies it to dst (creating the parent directory), so the widget and the OAuth
-// flow can read it from the standard location.
+// installCredentials validates that src is a usable Google credentials JSON
+// (OAuth "Desktop" client or service account) and copies it to dst (creating the
+// parent directory), so the widget and the auth flow read it from one location.
 func installCredentials(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", src, err)
 	}
-	if err := validateDesktopCredentials(data); err != nil {
+	if err := validateCredentials(data); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
@@ -184,24 +201,30 @@ func installCredentials(src, dst string) error {
 	return nil
 }
 
-// validateDesktopCredentials checks that data is a Google OAuth client JSON of
-// the "Desktop app" type (the only kind that supports the loopback redirect this
-// flow uses). It returns a user-actionable error otherwise.
-func validateDesktopCredentials(data []byte) error {
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(data, &probe); err != nil {
-		return fmt.Errorf("not valid JSON")
+// printServiceAccountNextSteps tells the user how to finish service-account setup:
+// share the calendar with the service account address and set calendar_id. No
+// browser sign-in is needed for service accounts.
+func printServiceAccountNextSteps(out io.Writer, data []byte) {
+	email := serviceAccountEmail(data)
+	if email == "" {
+		email = "<the service account's client_email>"
 	}
-	if _, ok := probe["installed"]; !ok {
-		if _, isWeb := probe["web"]; isWeb {
-			return fmt.Errorf("this is a 'Web application' client — create one of type 'Desktop app' instead")
-		}
-		return fmt.Errorf("not a Google OAuth client file (missing the 'installed' section)")
-	}
-	if _, err := google.ConfigFromJSON(data, calendarScope); err != nil {
-		return fmt.Errorf("invalid OAuth client JSON: %w", err)
-	}
-	return nil
+	fmt.Fprintf(out, `
+✓ Service account detected — no browser sign-in needed.
+
+Two steps so it can read your calendar:
+  1. In Google Calendar → Settings → "Share with specific people", add this
+     address with "See all event details":
+       %s
+  2. In your config.yml, set the calendar you shared:
+       widgets:
+         - type: google_calendar
+           title: "Google Calendar"
+           calendar_id: you@example.com   # the calendar shared above
+           refresh: 5m
+
+Then run devdeck.
+`, email)
 }
 
 // cleanPath normalizes a path the user typed, pasted, or dragged into the

@@ -55,7 +55,7 @@ func buildWidget(index int, wc config.WidgetConfig, runner exec.CommandRunner) u
 			New(id, title, github.NewClient(runner), runner, github.ParseModes(wc.Modes)).
 			SetRefreshInterval(parseRefresh(wc.Refresh))
 	case "google_calendar":
-		client := gcal.NewClient(expandUser(wc.CredentialsPath), expandUser(wc.TokenPath))
+		client := gcal.NewClient(expandUser(wc.CredentialsPath), expandUser(wc.TokenPath), wc.CalendarID)
 		return calendar.
 			New(id, title, client, runner).
 			SetRefreshInterval(parseRefresh(wc.Refresh))

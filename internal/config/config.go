@@ -41,16 +41,23 @@ widgets:
     modes: [authored, review_requested, assigned]
     refresh: 1m            # auto-refresh (e.g. 30s, 1m, 5m); omit/0 to disable
 
-  # Google Calendar — this week's meetings grouped by day.
-  # You bring your OWN Google OAuth client (DevDeck ships none): create an OAuth
-  # "Desktop app" client in your Google Cloud project. Run the guided
-  # ` + "`devdeck auth google`" + ` once, then uncomment this block.
+  # Google Calendar — this week's meetings grouped by day. You bring your OWN
+  # Google credentials (DevDeck ships none). Two options, auto-detected:
+  #
+  #   A) OAuth "Desktop app" client — run the guided ` + "`devdeck auth google`" + `
+  #      (browser sign-in). Reads your "primary" calendar.
+  #   B) Service account — no browser: share your calendar with the service
+  #      account's email, then set calendar_id to your calendar's address.
+  #
+  # Uncomment to enable:
   # - type: google_calendar
   #   title: "Google Calendar"
   #   refresh: 5m
   #   # Optional — point at your own files (default: this config dir):
-  #   # credentials_path: ~/secrets/my-oauth-client.json
+  #   # credentials_path: ~/secrets/my-google-credentials.json
   #   # token_path: ~/secrets/devdeck-google-token.json
+  #   # Required for a service account (the calendar you shared with it):
+  #   # calendar_id: you@gmail.com
 `
 
 // Config is the top-level configuration.
@@ -78,6 +85,12 @@ type WidgetConfig struct {
 	// leading "~/" is expanded to the user's home.
 	CredentialsPath string `yaml:"credentials_path"`
 	TokenPath       string `yaml:"token_path"`
+
+	// CalendarID selects which Google calendar to read. Empty defaults to
+	// "primary" (the signed-in user's calendar) for OAuth credentials. For a
+	// service account it must be set to the calendar's address (e.g. your email),
+	// shared with the service account, since a service account has no "primary".
+	CalendarID string `yaml:"calendar_id"`
 }
 
 // Default returns the zero-config dashboard: a single GitHub PR widget showing
