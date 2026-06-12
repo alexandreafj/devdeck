@@ -68,6 +68,50 @@ func TestFindCredentialCandidatePicksNewestDesktop(t *testing.T) {
 	}
 }
 
+func TestFindCredentialCandidateDetectsRenamedFile(t *testing.T) {
+	dir := t.TempDir()
+	// A desktop client the user renamed away from Google's default name.
+	renamed := filepath.Join(dir, "OAuth Client ID JSON.json")
+	writeFile(t, renamed, sampleCredentials)
+
+	got, ok := findCredentialCandidate(dir)
+	if !ok || got != renamed {
+		t.Errorf("findCredentialCandidate = %q (ok=%v), want the renamed desktop client %q", got, ok, renamed)
+	}
+}
+
+func TestCleanPath(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	cases := map[string]string{
+		`  /tmp/a.json  `:                 "/tmp/a.json",
+		`"/tmp/a b.json"`:                 "/tmp/a b.json",
+		`'/tmp/a b.json'`:                 "/tmp/a b.json",
+		`/Users/x/OAuth\ Client\ ID.json`: "/Users/x/OAuth Client ID.json",
+		`~/Downloads/c.json`:              filepath.Join(home, "Downloads/c.json"),
+	}
+	for in, want := range cases {
+		if got := cleanPath(in); got != want {
+			t.Errorf("cleanPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestEnsureCredentialsAcceptsEscapedDragAndDropPath(t *testing.T) {
+	credsPath := filepath.Join(t.TempDir(), "google-credentials.json")
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "OAuth Client ID JSON.json")
+	writeFile(t, src, sampleCredentials)
+
+	// Simulate a terminal drag-and-drop: spaces escaped with backslashes.
+	escaped := strings.ReplaceAll(src, " ", `\ `)
+	if _, err := runEnsure(t, escaped+"\n", credsPath, t.TempDir()); err != nil {
+		t.Fatalf("ensureCredentials with escaped path: %v", err)
+	}
+	if _, statErr := os.Stat(credsPath); statErr != nil {
+		t.Errorf("escaped drag-and-drop path should install credentials: %v", statErr)
+	}
+}
+
 func TestFindCredentialCandidateNoneOrMissingDir(t *testing.T) {
 	if _, ok := findCredentialCandidate(t.TempDir()); ok {
 		t.Error("empty dir should yield no candidate")

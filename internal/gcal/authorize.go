@@ -80,8 +80,7 @@ func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner 
 			return nil, fmt.Errorf("setup cancelled")
 		}
 
-		src := strings.TrimSpace(scanner.Text())
-		src = strings.Trim(src, "'\"") // tolerate shell-style quoted/dragged paths
+		src := cleanPath(scanner.Text())
 		if src == "" {
 			cand, ok := findCredentialCandidate(downloads)
 			if !ok {
@@ -130,10 +129,10 @@ to anyone but Google. Three steps in the Google Cloud console:
 `)
 }
 
-// findCredentialCandidate returns the newest OAuth "Desktop" client JSON in dir
-// (Google names these "client_secret_*.apps.googleusercontent.com.json"), or
-// ok=false if none is found. Files that don't validate as a desktop client are
-// ignored.
+// findCredentialCandidate returns the newest OAuth "Desktop" client JSON in dir,
+// or ok=false if none is found. It matches on file *contents* (any .json that
+// validates as a desktop client), so a file the user renamed still gets picked
+// up — not just Google's default "client_secret_*.json" name.
 func findCredentialCandidate(dir string) (string, bool) {
 	if dir == "" {
 		return "", false
@@ -145,14 +144,10 @@ func findCredentialCandidate(dir string) (string, bool) {
 	var best string
 	var bestMod time.Time
 	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".json") {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
 			continue
 		}
-		if !strings.Contains(name, "client_secret") && !strings.Contains(name, "googleusercontent") {
-			continue
-		}
-		full := filepath.Join(dir, name)
+		full := filepath.Join(dir, e.Name())
 		data, err := os.ReadFile(full)
 		if err != nil || validateDesktopCredentials(data) != nil {
 			continue
@@ -206,6 +201,35 @@ func validateDesktopCredentials(data []byte) error {
 		return fmt.Errorf("invalid OAuth client JSON: %w", err)
 	}
 	return nil
+}
+
+// cleanPath normalizes a path the user typed, pasted, or dragged into the
+// terminal: it trims surrounding whitespace and matching quotes, unescapes
+// shell-style backslash escapes (e.g. "My\ File.json" from a drag-and-drop), and
+// expands a leading "~/".
+func cleanPath(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if first, last := s[0], s[len(s)-1]; (first == '\'' && last == '\'') || (first == '"' && last == '"') {
+			return s[1 : len(s)-1] // quoted: take verbatim, no unescaping
+		}
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
+			b.WriteByte(s[i])
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	out := b.String()
+	if strings.HasPrefix(out, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			out = filepath.Join(home, out[2:])
+		}
+	}
+	return out
 }
 
 // downloadsDir returns the user's Downloads directory (best effort).
