@@ -43,7 +43,7 @@ func Default() Config {
 		Layout: LayoutConfig{MaxWidgets: maxWidgetsCap},
 		Widgets: []WidgetConfig{{
 			Type:    "github_prs",
-			Title:   "PRs",
+			Title:   "Github Pull Requests",
 			Modes:   []string{"authored", "review_requested", "assigned"},
 			Refresh: "1m",
 		}},

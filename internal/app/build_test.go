@@ -29,8 +29,16 @@ func TestBuildCreatesGithubWidget(t *testing.T) {
 func TestBuildDefaultsTitleWhenMissing(t *testing.T) {
 	c := cfg(4, config.WidgetConfig{Type: "github_prs"})
 	widgets := Build(c, &exectest.FakeRunner{})
-	if len(widgets) != 1 || widgets[0].Title() != "PRs" {
-		t.Errorf("expected a single widget titled PRs, got %+v", widgets)
+	if len(widgets) != 1 || widgets[0].Title() != "Github Pull Requests" {
+		t.Errorf("expected a single widget titled 'Github Pull Requests', got %+v", widgets)
+	}
+}
+
+func TestBuildCreatesCalendarWidget(t *testing.T) {
+	c := cfg(4, config.WidgetConfig{Type: "google_calendar"})
+	widgets := Build(c, &exectest.FakeRunner{})
+	if len(widgets) != 1 || widgets[0].Title() != "Google Calendar" {
+		t.Errorf("expected a single widget titled 'Google Calendar', got %+v", widgets)
 	}
 }
 

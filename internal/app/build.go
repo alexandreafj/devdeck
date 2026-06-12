@@ -9,15 +9,18 @@ import (
 
 	"github.com/alexandreafj/devdeck/internal/config"
 	"github.com/alexandreafj/devdeck/internal/exec"
+	"github.com/alexandreafj/devdeck/internal/gcal"
 	"github.com/alexandreafj/devdeck/internal/github"
 	"github.com/alexandreafj/devdeck/internal/ui"
+	"github.com/alexandreafj/devdeck/internal/widgets/calendar"
 	"github.com/alexandreafj/devdeck/internal/widgets/githubprs"
 )
 
 // defaultTitles supplies a fallback title per widget type when the config omits
 // one.
 var defaultTitles = map[string]string{
-	"github_prs": "PRs",
+	"github_prs":      "Github Pull Requests",
+	"google_calendar": "Google Calendar",
 }
 
 // Build turns a Config into the dashboard's widgets, honouring Layout.MaxWidgets
@@ -47,6 +50,10 @@ func buildWidget(index int, wc config.WidgetConfig, runner exec.CommandRunner) u
 	case "github_prs":
 		return githubprs.
 			New(id, title, github.NewClient(runner), runner, github.ParseModes(wc.Modes)).
+			SetRefreshInterval(parseRefresh(wc.Refresh))
+	case "google_calendar":
+		return calendar.
+			New(id, title, gcal.NewClient(), runner).
 			SetRefreshInterval(parseRefresh(wc.Refresh))
 	default:
 		return nil

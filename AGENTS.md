@@ -6,12 +6,16 @@ making changes.
 ## Overview
 
 **DevDeck** is a terminal dashboard (Bubble Tea TUI) for "the things waiting on
-you." It renders a configurable, left-to-right set of **widgets** (max 4). v0.1
-ships one widget: **GitHub PRs** — authored / review-requested / assigned PRs
-across all your repos, fetched through the authenticated `gh` CLI.
+you." It renders a configurable, left-to-right set of **widgets** (max 4). It
+ships two widgets:
 
-The dashboard is widget-based by design: new sources (Calendar, CI, Jira) are
-added by implementing the `ui.Widget` interface, not by editing the core.
+- **Github Pull Requests** — authored / review-requested / assigned PRs across
+  all your repos, fetched through the authenticated `gh` CLI.
+- **Google Calendar** — this week's meetings grouped by day, via the Calendar
+  API with a user-supplied OAuth client (`devdeck auth google`).
+
+The dashboard is widget-based by design: new sources (CI, Jira, …) are added by
+implementing the `ui.Widget` interface, not by editing the core.
 
 ## Commands
 
@@ -37,20 +41,37 @@ Raw equivalents: `go test ./...`, `go build ./cmd/devdeck`, `go vet ./...`.
 ## Repo shape
 
 ```
-cmd/devdeck/        Thin entrypoint (composition root only — no logic).
+cmd/devdeck/        Thin entrypoint: dashboard + `auth google` subcommand.
 internal/
   domain/           Source-agnostic Item type shared by all widgets.
   timeutil/         Pure relative-time formatting ("2w ago").
   exec/             CommandRunner interface + OS impl (the shell-out seam).
     exectest/       FakeRunner for tests (records calls, scripts output).
+  browser/          Cross-platform "open URL in browser" (over CommandRunner).
   github/           PR model, gh-backed PRProvider, OpenPR, mode parsing.
+  gcal/             Event model, EventProvider, OAuth/token, events.list client.
   config/           YAML config loading with defaults.
   ui/               Widget interface, responsive Layout, Dashboard model.
   widgets/
     githubprs/      The GitHub PR widget (implements ui.Widget).
+    calendar/       The Google Calendar widget (implements ui.Widget).
   app/              Builds widgets from config (tested wiring).
 .github/workflows/  CI (test + lint + coverage gate + PR comment).
 ```
+
+## Workflow (load-bearing)
+
+1. **Always branch from `master`.** Every change — feature, fix, docs — starts on
+   a fresh branch off `master` (`feat/…`, `fix/…`, `docs/…`) and lands via a PR
+   with green CI. **Never commit directly to `master`.** Don't wait to be asked.
+2. **Merges delete their branch.** The repo has *delete branch on merge* enabled,
+   so head branches are removed automatically once merged — don't leave stale
+   branches around. Prune local copies with `git fetch --prune`.
+3. **Keep docs in sync with the change.** Whenever you add or change a widget, a
+   keybinding, a requirement, or notably grow the test suite, **update
+   `README.md`** (and `config.example.yml`) in the same PR. README's widget list,
+   keybindings table, setup steps, and the test-count metrics should never lag the
+   code.
 
 ## Testing / TDD rules (load-bearing)
 
@@ -59,9 +80,11 @@ This project is built **test-first (TDD)**. Honour it:
 1. **No production code without a failing test first.** Write the test, watch it
    fail for the right reason, then write the minimal code to pass.
 2. **I/O lives behind interfaces.** All external commands go through
-   `exec.CommandRunner`; GitHub data comes through `github.PRProvider`. Tests
-   substitute `exectest.FakeRunner` / a fake provider — **never invoke `gh` or
-   the network in a unit test.**
+   `exec.CommandRunner`; GitHub data comes through `github.PRProvider`; calendar
+   data through `gcal.EventProvider`. Tests substitute `exectest.FakeRunner` / a
+   fake provider — **never invoke `gh`, Google, or the network in a unit test.**
+   The few genuinely I/O-bound spots (the events.list HTTP call, the interactive
+   OAuth flow, `main`) are kept thin so the coverage gate still holds.
 3. **Logic lives in pure functions** (`timeutil.RelativeTime`, `ui.Layout`,
    `PR.ToItem`, `github.ParseMode`) so it is trivially testable.
 4. **Coverage ≥ 80% total**, enforced by `make cover-check` and CI. Keep it
@@ -80,7 +103,13 @@ This project is built **test-first (TDD)**. Honour it:
    messages to every widget — ignore those not addressed to you).
 4. Register the type in `internal/app/build.go` (`buildWidget` switch) and add a
    default title. Add a test in `internal/app/build_test.go`.
-5. Document the new `type` in `config.example.yml`.
+5. Document the new `type` in `config.example.yml` **and `README.md`** (widget
+   list, keybindings, any setup steps).
+6. For widgets that need their own auth (no `gh` to lean on, like Calendar):
+   put credential/token handling and the provider behind an interface in a data
+   package (see `internal/gcal`), keep the network + interactive OAuth in thin
+   files, and add an opener via `internal/browser` rather than a CLI. Auth that
+   needs a browser belongs in a `cmd/devdeck` subcommand, not the TUI.
 
 ## Conventions
 

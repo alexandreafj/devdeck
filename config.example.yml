@@ -13,9 +13,18 @@ layout:
   max_widgets: 4
 
 widgets:
-  - type: github_prs        # the only widget type in v0.1
-    title: "PRs"            # shown in the widget's frame
+  - type: github_prs                # GitHub pull requests across all your repos
+    title: "Github Pull Requests"   # shown in the widget's frame
     # Sections to show, switched with tab or ←/→ inside the widget. Any subset of:
     #   authored, review_requested, assigned
     modes: [authored, review_requested, assigned]
     refresh: 1m             # auto-refresh interval (e.g. 30s, 1m, 5m); omit/0 to disable
+
+  # Google Calendar — this week's meetings grouped by day. Requires a one-time
+  # `devdeck auth google` (see the README): create a Google Cloud OAuth "Desktop"
+  # client with the Calendar API enabled and save its credentials JSON to
+  #   macOS:  ~/Library/Application Support/devdeck/google-credentials.json
+  #   Linux:  ~/.config/devdeck/google-credentials.json
+  - type: google_calendar
+    title: "Google Calendar"
+    refresh: 5m             # auto-refresh interval; omit/0 to disable

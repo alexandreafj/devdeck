@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -16,17 +17,34 @@ import (
 	"github.com/alexandreafj/devdeck/internal/app"
 	"github.com/alexandreafj/devdeck/internal/config"
 	"github.com/alexandreafj/devdeck/internal/exec"
+	"github.com/alexandreafj/devdeck/internal/gcal"
 	"github.com/alexandreafj/devdeck/internal/ui"
 )
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "devdeck:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(args []string) error {
+	if len(args) > 0 && args[0] == "auth" {
+		return runAuth(args[1:])
+	}
+	return runDashboard()
+}
+
+// runAuth handles `devdeck auth google`, connecting the user's Google account
+// for the Calendar widget.
+func runAuth(args []string) error {
+	if len(args) != 1 || args[0] != "google" {
+		return fmt.Errorf("usage: devdeck auth google")
+	}
+	return gcal.Authorize(context.Background(), exec.New())
+}
+
+func runDashboard() error {
 	path, err := config.DefaultPath()
 	if err != nil {
 		return err
