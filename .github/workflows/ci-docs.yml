@@ -18,10 +18,10 @@ jobs:
     name: Test & coverage
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Docs-only change — no Go files touched, skipping tests."
+      - run: echo "Docs-only change: no Go files touched, skipping tests."
 
   build:
     name: Build binary
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Docs-only change — no Go files touched, skipping build."
+      - run: echo "Docs-only change: no Go files touched, skipping build."

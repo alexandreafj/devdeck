@@ -1,21 +1,36 @@
-# DevDeck configuration (optional).
+# DevDeck configuration (reference copy).
 #
-# DevDeck runs with sensible defaults and needs no config file. To customise it,
-# copy this file to the OS-conventional location and edit:
+# You normally don't need to create this: DevDeck writes a starter config on
+# first run at the OS-conventional path, which you then edit:
 #
 #   macOS:  ~/Library/Application Support/devdeck/config.yml
 #   Linux:  ~/.config/devdeck/config.yml
 #
-# Run `devdeck` (no args) and it will load that file if present.
+# Choose your widgets here. The dashboard shows up to 4, left to right. Add,
+# remove, reorder, or duplicate entries under "widgets:" and restart devdeck.
+# Each widget authenticates on its own (see the notes below). To turn a widget
+# off without deleting it, set `disabled: true` on its entry.
 
 layout:
   # Maximum widgets shown left-to-right. Capped at 4.
   max_widgets: 4
 
 widgets:
-  - type: github_prs        # the only widget type in v0.1
-    title: "PRs"            # shown in the widget's frame
-    # Sections to show, switched with tab or ←/→ inside the widget. Any subset of:
+  # GitHub pull requests across all your repos.
+  # Auth: run `gh auth login` once (the GitHub CLI).
+  - type: github_prs
+    title: "Github Pull Requests"
+    # Sections, switched with tab or ←/→ in the widget. Any subset of:
     #   authored, review_requested, assigned
     modes: [authored, review_requested, assigned]
-    refresh: 1m             # auto-refresh interval (e.g. 30s, 1m, 5m); omit/0 to disable
+    refresh: 1m            # auto-refresh (e.g. 30s, 1m, 5m); omit/0 to disable
+    # disabled: true       # keep this widget defined but hidden
+
+  # Google Calendar: this week's meetings grouped by day.
+  # Auth: run the guided `devdeck auth google` once, then uncomment this.
+  # Switching credentials? `devdeck auth google --reset` clears the saved JSON
+  # and token so you can reconnect (e.g. swap a service account for OAuth).
+  # - type: google_calendar
+  #   title: "Google Calendar"
+  #   refresh: 5m
+  #   # disabled: true     # turn it off without removing the block

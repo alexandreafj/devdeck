@@ -50,6 +50,30 @@ widgets:
 	}
 }
 
+func TestLoadParsesDisabledFlag(t *testing.T) {
+	path := writeTemp(t, `
+layout:
+  max_widgets: 4
+widgets:
+  - type: github_prs
+  - type: google_calendar
+    disabled: true
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Widgets) != 2 {
+		t.Fatalf("got %d widgets, want 2", len(cfg.Widgets))
+	}
+	if cfg.Widgets[0].Disabled {
+		t.Error("first widget should be enabled (disabled defaults to false)")
+	}
+	if !cfg.Widgets[1].Disabled {
+		t.Error("second widget should be marked disabled")
+	}
+}
+
 func TestLoadInvalidYAML(t *testing.T) {
 	path := writeTemp(t, "layout: [this is : not valid")
 	if _, err := Load(path); err == nil {
@@ -87,6 +111,51 @@ func TestLoadEmptyWidgetsGetsDefaultWidget(t *testing.T) {
 	}
 	if len(cfg.Widgets) != 1 || cfg.Widgets[0].Type != "github_prs" {
 		t.Errorf("widgets = %+v, want a default github_prs widget when none configured", cfg.Widgets)
+	}
+}
+
+func TestEnsureCreatesScaffoldWhenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "config.yml") // parent must be created
+	created, err := Ensure(path)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if !created {
+		t.Error("Ensure should report creating a new file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("scaffold not written: %v", err)
+	}
+	for _, want := range []string{"github_prs", "google_calendar", "Github Pull Requests"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("scaffold missing %q", want)
+		}
+	}
+
+	// The scaffold must parse and yield the GitHub widget (Calendar commented).
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("scaffold should be valid YAML: %v", err)
+	}
+	if len(cfg.Widgets) != 1 || cfg.Widgets[0].Type != "github_prs" || cfg.Widgets[0].Title != "Github Pull Requests" {
+		t.Errorf("scaffold widgets = %+v, want a single Github Pull Requests widget", cfg.Widgets)
+	}
+}
+
+func TestEnsureLeavesExistingFileUntouched(t *testing.T) {
+	const custom = "layout:\n  max_widgets: 2\nwidgets: []\n"
+	path := writeTemp(t, custom)
+	created, err := Ensure(path)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if created {
+		t.Error("Ensure must not overwrite an existing file")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != custom {
+		t.Errorf("existing config was modified:\n%s", got)
 	}
 }
 

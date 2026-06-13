@@ -48,13 +48,13 @@ jobs:
             if [ "${{ steps.test.outcome }}" = "success" ]; then
               echo "### ✅ Tests passed"
             else
-              echo "### ❌ Tests failed — see the workflow logs"
+              echo "### ❌ Tests failed: see the workflow logs"
             fi
             echo ""
             if awk "BEGIN { exit !($pct >= ${COVER_THRESHOLD}) }"; then
               echo "**Total coverage: ${pct}%** (threshold ${COVER_THRESHOLD}% ✅)"
             else
-              echo "**Total coverage: ${pct}%** (threshold ${COVER_THRESHOLD}% ❌ — merge blocked)"
+              echo "**Total coverage: ${pct}%** (threshold ${COVER_THRESHOLD}% ❌, merge blocked)"
             fi
             echo ""
             echo "<details><summary>Per-function coverage</summary>"

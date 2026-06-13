@@ -133,7 +133,7 @@ func TestDashboardBroadcastsNonKeyMessagesToAllWidgets(t *testing.T) {
 	d := NewDashboard(w0, w1)
 	update(t, d, pingMsg{})
 	if w0.updates != 1 || w1.updates != 1 {
-		t.Errorf("updates = (%d, %d), want (1, 1) — non-key msgs broadcast", w0.updates, w1.updates)
+		t.Errorf("updates = (%d, %d), want (1, 1), non-key msgs broadcast", w0.updates, w1.updates)
 	}
 }
 

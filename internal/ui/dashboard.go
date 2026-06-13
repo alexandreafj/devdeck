@@ -64,7 +64,7 @@ func (d Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (d Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// While the focused widget is capturing text (e.g. its filter is open),
-	// every key is its input — skip the global bindings entirely.
+	// every key is its input, so skip the global bindings entirely.
 	if c, ok := d.focused().(inputCapturer); ok && c.CapturingInput() {
 		return d.updateFocused(msg)
 	}
@@ -173,6 +173,12 @@ func (d Dashboard) renderPane(w Widget, idx int, r Rect) string {
 	title := d.styles.Title.Render(w.Title())
 	body := w.View(innerW, innerH-1) // -1 for the title line
 	content := lipgloss.JoinVertical(lipgloss.Left, title, body)
+
+	// Hard-clip to the inner area so a widget that emits lines wider or taller
+	// than its pane (a long PR title, an unwrapped error) can't overflow and
+	// break the surrounding grid. Truncates rather than wraps, keeping the layout
+	// stable regardless of widget content.
+	content = lipgloss.NewStyle().MaxWidth(innerW).MaxHeight(innerH).Render(content)
 
 	return frame.Width(innerW).Height(innerH).Render(content)
 }

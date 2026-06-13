@@ -29,8 +29,16 @@ func TestBuildCreatesGithubWidget(t *testing.T) {
 func TestBuildDefaultsTitleWhenMissing(t *testing.T) {
 	c := cfg(4, config.WidgetConfig{Type: "github_prs"})
 	widgets := Build(c, &exectest.FakeRunner{})
-	if len(widgets) != 1 || widgets[0].Title() != "PRs" {
-		t.Errorf("expected a single widget titled PRs, got %+v", widgets)
+	if len(widgets) != 1 || widgets[0].Title() != "Github Pull Requests" {
+		t.Errorf("expected a single widget titled 'Github Pull Requests', got %+v", widgets)
+	}
+}
+
+func TestBuildCreatesCalendarWidget(t *testing.T) {
+	c := cfg(4, config.WidgetConfig{Type: "google_calendar"})
+	widgets := Build(c, &exectest.FakeRunner{})
+	if len(widgets) != 1 || widgets[0].Title() != "Google Calendar" {
+		t.Errorf("expected a single widget titled 'Google Calendar', got %+v", widgets)
 	}
 }
 
@@ -53,6 +61,28 @@ func TestBuildSkipsUnknownTypes(t *testing.T) {
 	)
 	if got := len(Build(c, &exectest.FakeRunner{})); got != 1 {
 		t.Errorf("built %d widgets, want 1 (unknown type skipped)", got)
+	}
+}
+
+func TestBuildSkipsDisabledWidgets(t *testing.T) {
+	c := cfg(4,
+		config.WidgetConfig{Type: "github_prs"},
+		config.WidgetConfig{Type: "google_calendar", Disabled: true},
+	)
+	widgets := Build(c, &exectest.FakeRunner{})
+	if len(widgets) != 1 || widgets[0].Title() != "Github Pull Requests" {
+		t.Errorf("a disabled widget should be skipped, got %+v", widgets)
+	}
+}
+
+func TestBuildDisabledWidgetDoesNotConsumeSlot(t *testing.T) {
+	c := cfg(1,
+		config.WidgetConfig{Type: "github_prs", Disabled: true},
+		config.WidgetConfig{Type: "github_prs", Title: "Visible"},
+	)
+	widgets := Build(c, &exectest.FakeRunner{})
+	if len(widgets) != 1 || widgets[0].Title() != "Visible" {
+		t.Errorf("a disabled widget must not take a max-widgets slot; got %+v", widgets)
 	}
 }
 
