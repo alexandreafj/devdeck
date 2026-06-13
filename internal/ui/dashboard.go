@@ -174,6 +174,12 @@ func (d Dashboard) renderPane(w Widget, idx int, r Rect) string {
 	body := w.View(innerW, innerH-1) // -1 for the title line
 	content := lipgloss.JoinVertical(lipgloss.Left, title, body)
 
+	// Hard-clip to the inner area so a widget that emits lines wider or taller
+	// than its pane (a long PR title, an unwrapped error) can't overflow and
+	// break the surrounding grid. Truncates rather than wraps, keeping the layout
+	// stable regardless of widget content.
+	content = lipgloss.NewStyle().MaxWidth(innerW).MaxHeight(innerH).Render(content)
+
 	return frame.Width(innerW).Height(innerH).Render(content)
 }
 
