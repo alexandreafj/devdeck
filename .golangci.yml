@@ -1,4 +1,4 @@
-# golangci-lint configuration (v1.x format — matches CI pin)
+# golangci-lint configuration (v1.x format, matches CI pin)
 run:
   timeout: 5m
 

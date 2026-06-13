@@ -32,6 +32,11 @@ const (
 // authTimeout bounds how long we wait for the user to finish the browser consent.
 const authTimeout = 5 * time.Minute
 
+// maxCredentialSize caps how large a file auto-detect will read. Real Google
+// credential files are a few KB; this keeps the scan from slurping huge JSON
+// files (e.g. multi-GB data exports) that happen to share the Downloads folder.
+const maxCredentialSize = 1 << 20 // 1 MiB
+
 // Authorize runs the guided `devdeck auth google` flow: it walks the user
 // through creating a Google OAuth client (if they have not already), installs the
 // downloaded credentials, then opens the browser for consent and caches the
@@ -54,7 +59,7 @@ func Authorize(ctx context.Context, runner exec.CommandRunner, credentialsPath, 
 		return err
 	}
 
-	// A service account needs no browser sign-in — just calendar sharing.
+	// A service account needs no browser sign-in, just calendar sharing.
 	if credentialKind(data) == credServiceAccount {
 		printServiceAccountNextSteps(os.Stdout, data)
 		return nil
@@ -81,7 +86,7 @@ func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner 
 
 	printSetupGuide(out)
 	if err := browser.Open(ctx, runner, enableAPIURL); err != nil {
-		fmt.Fprintln(out, "(couldn't open your browser automatically — use the links above)")
+		fmt.Fprintln(out, "(couldn't open your browser automatically; use the links above)")
 	}
 
 	scanner := bufio.NewScanner(in)
@@ -124,9 +129,9 @@ func printSetupGuide(out io.Writer) {
 	fmt.Fprint(out, `
 Let's connect Google Calendar (one-time setup).
 
-DevDeck uses YOUR OWN Google credentials — it ships none. Two options (pick one):
-  • OAuth "Desktop app" client — browser sign-in; reads your "primary" calendar.
-  • Service account — no browser; you share your calendar with it.
+DevDeck uses YOUR OWN Google credentials; it ships none. Two options (pick one):
+  • OAuth "Desktop app" client: browser sign-in; reads your "primary" calendar.
+  • Service account: no browser; you share your calendar with it.
 
 In the Google Cloud console:
 
@@ -134,23 +139,28 @@ In the Google Cloud console:
        `+enableAPIURL+`
      Pick or create a project, then click "Enable".
 
-  2. Create your credentials:
+  2. Set up the OAuth consent screen (User type "External") and add the Google
+     account you'll sign in with as a Test user. This is required, or sign-in
+     fails with "Error 403: access_denied":
+       `+consentURL+`
+
+  3. Create your credentials:
        `+credentialsURL+`
      OAuth:           "Create credentials" → "OAuth client ID"
                       → "Desktop app" → Create → "Download JSON".
-                      (first set up the consent screen — User type "External",
-                       add your address as a Test user: `+consentURL+`)
      Service account: "Create credentials" → "Service account" → open it →
                       "Keys" → "Add key" → "JSON".
 
-Download/save the JSON, then come back here — I'll detect it next.
+Download/save the JSON, then come back here and I'll detect it next.
 `)
 }
 
-// findCredentialCandidate returns the newest Google credentials JSON in dir
-// (OAuth "Desktop" client or service account), or ok=false if none is found. It
-// matches on file *contents*, so a file the user renamed still gets picked up —
-// not just Google's default "client_secret_*.json" name.
+// findCredentialCandidate returns the best Google credentials JSON in dir, or
+// ok=false if none is found. It matches on file *contents*, so a file the user
+// renamed still gets picked up, not just Google's default "client_secret_*.json"
+// name. An OAuth "Desktop" client is preferred over a service account (browser
+// sign-in reads "primary" with no extra calendar-sharing setup); within each kind
+// the newest file wins.
 func findCredentialCandidate(dir string) (string, bool) {
 	if dir == "" {
 		return "", false
@@ -159,26 +169,36 @@ func findCredentialCandidate(dir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	var best string
-	var bestMod time.Time
+	var oauthBest, svcBest string
+	var oauthMod, svcMod time.Time
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
 			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.Size() > maxCredentialSize {
+			continue // skip unreadable or oversized files (e.g. large data exports)
 		}
 		full := filepath.Join(dir, e.Name())
 		data, err := os.ReadFile(full)
 		if err != nil || validateCredentials(data) != nil {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if best == "" || info.ModTime().After(bestMod) {
-			best, bestMod = full, info.ModTime()
+		switch credentialKind(data) {
+		case credOAuthDesktop:
+			if oauthBest == "" || info.ModTime().After(oauthMod) {
+				oauthBest, oauthMod = full, info.ModTime()
+			}
+		case credServiceAccount:
+			if svcBest == "" || info.ModTime().After(svcMod) {
+				svcBest, svcMod = full, info.ModTime()
+			}
 		}
 	}
-	return best, best != ""
+	if oauthBest != "" {
+		return oauthBest, true
+	}
+	return svcBest, svcBest != ""
 }
 
 // installCredentials validates that src is a usable Google credentials JSON
@@ -210,7 +230,7 @@ func printServiceAccountNextSteps(out io.Writer, data []byte) {
 		email = "<the service account's client_email>"
 	}
 	fmt.Fprintf(out, `
-✓ Service account detected — no browser sign-in needed.
+✓ Service account detected; no browser sign-in needed.
 
 Two steps so it can read your calendar:
   1. In Google Calendar → Settings → "Share with specific people", add this
@@ -232,6 +252,7 @@ Then run devdeck.
 // shell-style backslash escapes (e.g. "My\ File.json" from a drag-and-drop), and
 // expands a leading "~/".
 func cleanPath(s string) string {
+	s = stripANSI(s)
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 {
 		if first, last := s[0], s[len(s)-1]; (first == '\'' && last == '\'') || (first == '"' && last == '"') {
@@ -254,6 +275,35 @@ func cleanPath(s string) string {
 		}
 	}
 	return out
+}
+
+// stripANSI removes ANSI escape sequences (e.g. the "\x1b[A" an Up-arrow sends)
+// and other control characters from terminal input, so an accidental cursor key
+// at the prompt is not mistaken for a file path.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case c == 0x1b: // ESC: drop a CSI sequence "ESC [ params... final(0x40-0x7e)"
+			i++
+			if i < len(s) && s[i] == '[' {
+				i++
+				for i < len(s) && (s[i] < 0x40 || s[i] > 0x7e) {
+					i++
+				}
+				if i < len(s) {
+					i++ // consume the final byte
+				}
+			}
+		case c < 0x20 && c != '\t': // drop other control characters
+			i++
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
 }
 
 // downloadsDir returns the user's Downloads directory (best effort).
@@ -297,9 +347,10 @@ func runOAuth(ctx context.Context, out io.Writer, runner exec.CommandRunner, cfg
 	authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	fmt.Fprintln(out, "\nOpening your browser to approve calendar access…")
 	fmt.Fprintln(out, "If it doesn't open, visit:\n"+authURL)
-	fmt.Fprintln(out, "\n(The \"unverified app\" screen is your own OAuth app — choose your account → Advanced → \"Go to <your app name> (unsafe)\".)")
+	fmt.Fprintln(out, "\n(\"Error 403: access_denied\"? Add your Google account as a Test user on the OAuth consent screen, then retry.)")
+	fmt.Fprintln(out, "(The \"unverified app\" screen is your own OAuth app: choose your account, then Advanced, then \"Go to <your app name> (unsafe)\".)")
 	if err := browser.Open(ctx, runner, authURL); err != nil {
-		fmt.Fprintln(out, "(couldn't open the browser automatically — use the link above)")
+		fmt.Fprintln(out, "(couldn't open the browser automatically; use the link above)")
 	}
 
 	var code string

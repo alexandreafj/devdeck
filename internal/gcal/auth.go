@@ -2,7 +2,10 @@ package gcal
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -47,6 +50,40 @@ func LoadCredentials(path string) (*oauth2.Config, error) {
 		return nil, fmt.Errorf("parse credentials %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// Reset disconnects Google Calendar by removing DevDeck's saved credentials JSON
+// and cached OAuth token, so the next `devdeck auth google` starts fresh, e.g.
+// to switch from a service account to an OAuth client. credentialsPath and
+// tokenPath may be empty to use the default config-dir locations. Files that are
+// already gone are not an error.
+func Reset(out io.Writer, credentialsPath, tokenPath string) error {
+	credsPath, err := resolvePath(credentialsPath, CredentialsPath)
+	if err != nil {
+		return err
+	}
+	tokPath, err := resolvePath(tokenPath, TokenPath)
+	if err != nil {
+		return err
+	}
+	removed := 0
+	for _, p := range []string{credsPath, tokPath} {
+		switch err := os.Remove(p); {
+		case err == nil:
+			fmt.Fprintf(out, "Removed %s\n", p)
+			removed++
+		case errors.Is(err, fs.ErrNotExist):
+			// already gone, nothing to do
+		default:
+			return fmt.Errorf("remove %s: %w", p, err)
+		}
+	}
+	if removed == 0 {
+		fmt.Fprintln(out, "Nothing to remove; no saved Google credentials or token.")
+		return nil
+	}
+	fmt.Fprintln(out, "Disconnected. Run `devdeck auth google` to reconnect.")
+	return nil
 }
 
 // LoadToken reads a cached OAuth token from path.

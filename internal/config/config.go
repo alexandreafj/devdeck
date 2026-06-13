@@ -22,10 +22,11 @@ const maxWidgetsCap = 4
 // widgets, each authenticating on its own.
 const DefaultConfigYAML = `# DevDeck configuration.
 #
-# Created automatically on first run — edit it to choose your widgets. The
+# Created automatically on first run; edit it to choose your widgets. The
 # dashboard shows up to 4 widgets, left to right. Add, remove, reorder, or
 # duplicate entries under "widgets:" then restart devdeck. Each widget
-# authenticates on its own (see the notes below).
+# authenticates on its own (see the notes below). To turn a widget off without
+# deleting it, set ` + "`disabled: true`" + ` on its entry.
 
 layout:
   # Maximum widgets shown left-to-right. Capped at 4.
@@ -40,20 +41,25 @@ widgets:
     #   authored, review_requested, assigned
     modes: [authored, review_requested, assigned]
     refresh: 1m            # auto-refresh (e.g. 30s, 1m, 5m); omit/0 to disable
+    # disabled: true       # keep this widget defined but hidden
 
-  # Google Calendar — this week's meetings grouped by day. You bring your OWN
+  # Google Calendar: this week's meetings grouped by day. You bring your OWN
   # Google credentials (DevDeck ships none). Two options, auto-detected:
   #
-  #   A) OAuth "Desktop app" client — run the guided ` + "`devdeck auth google`" + `
-  #      (browser sign-in). Reads your "primary" calendar.
-  #   B) Service account — no browser: share your calendar with the service
+  #   A) OAuth "Desktop app" client: run the guided ` + "`devdeck auth google`" + `
+  #      (browser sign-in). Reads your "primary" calendar. (Preferred.)
+  #   B) Service account: no browser. Share your calendar with the service
   #      account's email, then set calendar_id to your calendar's address.
+  #
+  # Switching credentials? ` + "`devdeck auth google --reset`" + ` clears the saved JSON
+  # and token so you can reconnect from scratch.
   #
   # Uncomment to enable:
   # - type: google_calendar
   #   title: "Google Calendar"
   #   refresh: 5m
-  #   # Optional — point at your own files (default: this config dir):
+  #   # disabled: true     # turn it off without removing the block
+  #   # Optional: point at your own files (default: this config dir):
   #   # credentials_path: ~/secrets/my-google-credentials.json
   #   # token_path: ~/secrets/devdeck-google-token.json
   #   # Required for a service account (the calendar you shared with it):
@@ -78,6 +84,11 @@ type WidgetConfig struct {
 	Title   string   `yaml:"title"`
 	Modes   []string `yaml:"modes"`
 	Refresh string   `yaml:"refresh"`
+
+	// Disabled keeps the widget defined but hidden: when true it is skipped at
+	// build time (and does not consume a layout slot), so you can turn a widget
+	// off without deleting or commenting out its config.
+	Disabled bool `yaml:"disabled"`
 
 	// CredentialsPath and TokenPath let a widget that authenticates with its own
 	// OAuth client (e.g. google_calendar) point at a user-chosen credentials JSON

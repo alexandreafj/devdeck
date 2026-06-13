@@ -118,6 +118,78 @@ func TestFindCredentialCandidatePicksNewestDesktop(t *testing.T) {
 	}
 }
 
+func TestFindCredentialCandidatePrefersOAuthOverServiceAccount(t *testing.T) {
+	dir := t.TempDir()
+	oauth := filepath.Join(dir, "oauth-client.json")
+	svc := filepath.Join(dir, "service-account.json")
+	writeFile(t, oauth, sampleCredentials)
+	writeFile(t, svc, sampleServiceAccount)
+	// Make the service account the *newer* file, so picking by mod time alone
+	// would wrongly choose it: OAuth should still win.
+	newer := time.Now()
+	older := newer.Add(-time.Hour)
+	if err := os.Chtimes(oauth, older, older); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(svc, newer, newer); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := findCredentialCandidate(dir)
+	if !ok {
+		t.Fatal("should find a candidate")
+	}
+	if got != oauth {
+		t.Errorf("candidate = %q, want the OAuth desktop client %q (preferred over a newer service account)", got, oauth)
+	}
+}
+
+func TestFindCredentialCandidateFallsBackToServiceAccount(t *testing.T) {
+	dir := t.TempDir()
+	svc := filepath.Join(dir, "service-account.json")
+	writeFile(t, svc, sampleServiceAccount)
+
+	got, ok := findCredentialCandidate(dir)
+	if !ok || got != svc {
+		t.Errorf("findCredentialCandidate = %q (ok=%v), want the service account %q when no OAuth client is present", got, ok, svc)
+	}
+}
+
+func TestFindCredentialCandidateSkipsHugeFiles(t *testing.T) {
+	dir := t.TempDir()
+	small := filepath.Join(dir, "small-oauth.json")
+	huge := filepath.Join(dir, "huge-oauth.json")
+	writeFile(t, small, sampleCredentials)
+	// A valid-but-oversized JSON (e.g. a multi-GB data export that happens to be
+	// JSON) must be skipped without being read into memory.
+	writeFile(t, huge, sampleCredentials+strings.Repeat(" ", (1<<20)+1))
+	// Make the huge file newer, so "newest wins" would pick it without a cap.
+	now := time.Now()
+	old := now.Add(-time.Hour)
+	if err := os.Chtimes(small, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(huge, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := findCredentialCandidate(dir)
+	if !ok || got != small {
+		t.Errorf("findCredentialCandidate = %q (ok=%v), want the small file %q (oversized file skipped)", got, ok, small)
+	}
+}
+
+func TestCleanPathStripsArrowKeyEscape(t *testing.T) {
+	// An accidental Up-arrow at the prompt sends an ANSI escape ("\x1b[A"); it
+	// must not be mistaken for a path (cleans to empty, triggering auto-detect).
+	if got := cleanPath("\x1b[A"); got != "" {
+		t.Errorf("cleanPath(arrow) = %q, want empty", got)
+	}
+	if got := cleanPath("\x1b[A/tmp/a.json"); got != "/tmp/a.json" {
+		t.Errorf("cleanPath with leading escape = %q, want /tmp/a.json", got)
+	}
+}
+
 func TestFindCredentialCandidateDetectsRenamedFile(t *testing.T) {
 	dir := t.TempDir()
 	// A desktop client the user renamed away from Google's default name.

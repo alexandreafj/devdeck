@@ -64,7 +64,7 @@ func (d Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (d Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// While the focused widget is capturing text (e.g. its filter is open),
-	// every key is its input — skip the global bindings entirely.
+	// every key is its input, so skip the global bindings entirely.
 	if c, ok := d.focused().(inputCapturer); ok && c.CapturingInput() {
 		return d.updateFocused(msg)
 	}

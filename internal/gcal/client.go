@@ -134,7 +134,7 @@ func fetchEvents(ctx context.Context, doer httpDoer, calendarID string, start, e
 	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, ErrNotConnected
 	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("calendar not accessible (%s) — check calendar_id and that the calendar is shared with the service account", resp.Status)
+		return nil, fmt.Errorf("calendar not accessible (%s); check calendar_id and that the calendar is shared with the service account", resp.Status)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("calendar API: %s", resp.Status)
 	}

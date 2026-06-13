@@ -1,8 +1,10 @@
 package gcal
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,6 +78,44 @@ func TestLoadTokenErrors(t *testing.T) {
 	}
 	if _, err := LoadToken(bad); err == nil {
 		t.Error("malformed token should error")
+	}
+}
+
+func TestResetRemovesCredentialsAndToken(t *testing.T) {
+	dir := t.TempDir()
+	creds := filepath.Join(dir, credentialsFile)
+	tok := filepath.Join(dir, tokenFile)
+	if err := os.WriteFile(creds, []byte(sampleCredentials), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tok, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &bytes.Buffer{}
+	if err := Reset(out, creds, tok); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	if _, err := os.Stat(creds); !os.IsNotExist(err) {
+		t.Error("credentials file should be removed")
+	}
+	if _, err := os.Stat(tok); !os.IsNotExist(err) {
+		t.Error("token file should be removed")
+	}
+	if !strings.Contains(out.String(), "Disconnected") {
+		t.Errorf("Reset should confirm disconnection:\n%s", out.String())
+	}
+}
+
+func TestResetWhenNothingSaved(t *testing.T) {
+	dir := t.TempDir()
+	out := &bytes.Buffer{}
+	err := Reset(out, filepath.Join(dir, credentialsFile), filepath.Join(dir, tokenFile))
+	if err != nil {
+		t.Fatalf("Reset with nothing to remove should not error: %v", err)
+	}
+	if !strings.Contains(out.String(), "Nothing to remove") {
+		t.Errorf("Reset should report nothing to remove:\n%s", out.String())
 	}
 }
 

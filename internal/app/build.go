@@ -32,6 +32,9 @@ var defaultTitles = map[string]string{
 func Build(cfg config.Config, runner exec.CommandRunner) []ui.Widget {
 	var widgets []ui.Widget
 	for i, wc := range cfg.Widgets {
+		if wc.Disabled {
+			continue
+		}
 		if len(widgets) >= cfg.Layout.MaxWidgets {
 			break
 		}
@@ -66,7 +69,7 @@ func buildWidget(index int, wc config.WidgetConfig, runner exec.CommandRunner) u
 
 // CalendarAuthPaths returns the credentials and token paths configured for the
 // first google_calendar widget (with a leading "~/" expanded), or empty strings
-// when none is configured — in which case callers fall back to the default
+// when none is configured, in which case callers fall back to the default
 // locations. `devdeck auth google` uses this so auth and the widget agree.
 func CalendarAuthPaths(cfg config.Config) (credentials, token string) {
 	for _, wc := range cfg.Widgets {

@@ -36,7 +36,7 @@ func credentialKind(data []byte) credKind {
 }
 
 // validateCredentials checks that data is a Google credentials file DevDeck can
-// use — either an OAuth "Desktop app" client or a service account — returning a
+// use, either an OAuth "Desktop app" client or a service account, returning a
 // user-actionable error otherwise (e.g. a "Web application" client).
 func validateCredentials(data []byte) error {
 	switch credentialKind(data) {
@@ -54,7 +54,7 @@ func validateCredentials(data []byte) error {
 		var probe map[string]json.RawMessage
 		if json.Unmarshal(data, &probe) == nil {
 			if _, isWeb := probe["web"]; isWeb {
-				return fmt.Errorf("this is a 'Web application' client — use a 'Desktop app' client or a service account")
+				return fmt.Errorf("this is a 'Web application' client; use a 'Desktop app' client or a service account")
 			}
 		}
 		return fmt.Errorf("not a Google OAuth 'Desktop' client or service account JSON")

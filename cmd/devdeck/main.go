@@ -2,9 +2,9 @@
 // the things waiting on you, starting with GitHub pull requests across all your
 // repositories via the authenticated `gh` CLI.
 //
-// This file is deliberately thin — the testable logic lives in the internal
-// packages (config, app, ui, github, …). It only loads config, wires widgets,
-// and runs the program.
+// This file is deliberately thin: the testable logic lives in the internal
+// packages (config, app, ui, github, cli, ...). It only loads config, wires
+// widgets, and runs the program.
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexandreafj/devdeck/internal/app"
+	"github.com/alexandreafj/devdeck/internal/cli"
 	"github.com/alexandreafj/devdeck/internal/config"
 	"github.com/alexandreafj/devdeck/internal/exec"
 	"github.com/alexandreafj/devdeck/internal/gcal"
@@ -30,19 +31,40 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) > 0 && args[0] == "auth" {
-		return runAuth(args[1:])
+	if len(args) > 0 {
+		switch args[0] {
+		case "auth":
+			return runAuth(args[1:])
+		case "-h", "--help", "help":
+			fmt.Print(cli.HelpText())
+			return nil
+		}
 	}
 	return runDashboard()
 }
 
-// runAuth handles `devdeck auth google [path/to/credentials.json]`, connecting
-// the user's Google account for the Calendar widget. Credentials/token paths come
-// from the configured google_calendar widget (so auth and the widget agree); an
-// optional path argument overrides the credentials location.
+// runAuth handles `devdeck auth google [--reset] [path/to/credentials.json]`,
+// connecting the user's Google account for the Calendar widget. Credentials/token
+// paths come from the configured google_calendar widget (so auth and the widget
+// agree); an optional path argument overrides the credentials location. With
+// --reset it instead removes the saved credentials and token so you can reconnect
+// from scratch (e.g. switch from a service account to OAuth).
 func runAuth(args []string) error {
 	if len(args) < 1 || args[0] != "google" {
-		return fmt.Errorf("usage: devdeck auth google [path/to/credentials.json]")
+		return fmt.Errorf("usage: devdeck auth google [--reset] [path/to/credentials.json]")
+	}
+
+	reset := false
+	var override string
+	for _, a := range args[1:] {
+		switch a {
+		case "--reset", "-reset", "reset":
+			reset = true
+		default:
+			if s := strings.TrimSpace(a); s != "" {
+				override = s
+			}
+		}
 	}
 
 	var credsPath, tokenPath string
@@ -51,10 +73,13 @@ func runAuth(args []string) error {
 			credsPath, tokenPath = app.CalendarAuthPaths(cfg)
 		}
 	}
-	if len(args) >= 2 && strings.TrimSpace(args[1]) != "" {
-		credsPath = strings.TrimSpace(args[1])
+	if override != "" {
+		credsPath = override
 	}
 
+	if reset {
+		return gcal.Reset(os.Stdout, credsPath, tokenPath)
+	}
 	return gcal.Authorize(context.Background(), exec.New(), credsPath, tokenPath)
 }
 

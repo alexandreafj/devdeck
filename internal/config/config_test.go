@@ -50,6 +50,30 @@ widgets:
 	}
 }
 
+func TestLoadParsesDisabledFlag(t *testing.T) {
+	path := writeTemp(t, `
+layout:
+  max_widgets: 4
+widgets:
+  - type: github_prs
+  - type: google_calendar
+    disabled: true
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Widgets) != 2 {
+		t.Fatalf("got %d widgets, want 2", len(cfg.Widgets))
+	}
+	if cfg.Widgets[0].Disabled {
+		t.Error("first widget should be enabled (disabled defaults to false)")
+	}
+	if !cfg.Widgets[1].Disabled {
+		t.Error("second widget should be marked disabled")
+	}
+}
+
 func TestLoadInvalidYAML(t *testing.T) {
 	path := writeTemp(t, "layout: [this is : not valid")
 	if _, err := Load(path); err == nil {

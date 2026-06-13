@@ -1,4 +1,4 @@
-# AGENTS.md — DevDeck
+# AGENTS.md: DevDeck
 
 Guidance for any agent (or human) working in this repository. Read this before
 making changes.
@@ -9,10 +9,11 @@ making changes.
 you." It renders a configurable, left-to-right set of **widgets** (max 4). It
 ships two widgets:
 
-- **Github Pull Requests** — authored / review-requested / assigned PRs across
+- **Github Pull Requests**: authored / review-requested / assigned PRs across
   all your repos, fetched through the authenticated `gh` CLI.
-- **Google Calendar** — this week's meetings grouped by day, via the Calendar
-  API with a user-supplied OAuth client (`devdeck auth google`).
+- **Google Calendar**: this week's meetings grouped by day, via the Calendar
+  API with user-supplied credentials (OAuth client or service account,
+  `devdeck auth google`).
 
 The dashboard is widget-based by design: new sources (CI, Jira, …) are added by
 implementing the `ui.Widget` interface, not by editing the core.
@@ -41,10 +42,11 @@ Raw equivalents: `go test ./...`, `go build ./cmd/devdeck`, `go vet ./...`.
 ## Repo shape
 
 ```
-cmd/devdeck/        Thin entrypoint: dashboard + `auth google` subcommand.
+cmd/devdeck/        Thin entrypoint: dashboard, `auth google`, `--help`.
 internal/
   domain/           Source-agnostic Item type shared by all widgets.
   timeutil/         Pure relative-time formatting ("2w ago").
+  cli/              Command-line help text (`devdeck --help`).
   exec/             CommandRunner interface + OS impl (the shell-out seam).
     exectest/       FakeRunner for tests (records calls, scripts output).
   browser/          Cross-platform "open URL in browser" (over CommandRunner).
@@ -61,11 +63,11 @@ internal/
 
 ## Workflow (load-bearing)
 
-1. **Always branch from `master`.** Every change — feature, fix, docs — starts on
+1. **Always branch from `master`.** Every change (feature, fix, docs) starts on
    a fresh branch off `master` (`feat/…`, `fix/…`, `docs/…`) and lands via a PR
    with green CI. **Never commit directly to `master`.** Don't wait to be asked.
 2. **Merges delete their branch.** The repo has *delete branch on merge* enabled,
-   so head branches are removed automatically once merged — don't leave stale
+   so head branches are removed automatically once merged, so don't leave stale
    branches around. Prune local copies with `git fetch --prune`.
 3. **Keep docs in sync with the change.** Whenever you add or change a widget, a
    keybinding, a requirement, or notably grow the test suite, **update
@@ -82,16 +84,16 @@ This project is built **test-first (TDD)**. Honour it:
 2. **I/O lives behind interfaces.** All external commands go through
    `exec.CommandRunner`; GitHub data comes through `github.PRProvider`; calendar
    data through `gcal.EventProvider`. Tests substitute `exectest.FakeRunner` / a
-   fake provider — **never invoke `gh`, Google, or the network in a unit test.**
+   fake provider. **Never invoke `gh`, Google, or the network in a unit test.**
    The few genuinely I/O-bound spots (the events.list HTTP call, the interactive
    OAuth flow, `main`) are kept thin so the coverage gate still holds.
 3. **Logic lives in pure functions** (`timeutil.RelativeTime`, `ui.Layout`,
    `PR.ToItem`, `github.ParseMode`) so it is trivially testable.
 4. **Coverage ≥ 80% total**, enforced by `make cover-check` and CI. Keep it
-   meaningful — don't write vacuous tests for fieldless structs; do test
+   meaningful: don't write vacuous tests for fieldless structs; do test
    behaviour, edge cases, and error paths.
 5. The Bubble Tea `Dashboard`/widgets are tested by driving `Update` with
-   synthetic messages and asserting state — no TTY, no golden files required.
+   synthetic messages and asserting state; no TTY, no golden files required.
 
 ## How to add a widget
 
@@ -100,7 +102,7 @@ This project is built **test-first (TDD)**. Honour it:
    Depend on an interface for any I/O so it can be faked.
 3. Async results: return a `tea.Cmd` from `Init`/`Refresh`/`Update` that emits a
    message carrying your widget's `ID` (the dashboard broadcasts non-key
-   messages to every widget — ignore those not addressed to you).
+   messages to every widget; ignore those not addressed to you).
 4. Register the type in `internal/app/build.go` (`buildWidget` switch) and add a
    default title. Add a test in `internal/app/build_test.go`.
 5. Document the new `type` in `config.example.yml` **and `README.md`** (widget
@@ -114,7 +116,7 @@ This project is built **test-first (TDD)**. Honour it:
 ## Conventions
 
 - **Go 1.26**, formatted with `gofmt`; lint config in `.golangci.yml`
-  (golangci-lint v1.64.x — CI is pinned to the same version).
+  (golangci-lint v1.64.x; CI is pinned to the same version).
 - Keep `cmd/devdeck/main.go` thin; put testable logic in `internal/...`.
 - Exported identifiers get doc comments (enforced by `revive`).
 - Run `make ci` before pushing; CI will block merges that fail tests, lint, or

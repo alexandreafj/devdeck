@@ -64,6 +64,28 @@ func TestBuildSkipsUnknownTypes(t *testing.T) {
 	}
 }
 
+func TestBuildSkipsDisabledWidgets(t *testing.T) {
+	c := cfg(4,
+		config.WidgetConfig{Type: "github_prs"},
+		config.WidgetConfig{Type: "google_calendar", Disabled: true},
+	)
+	widgets := Build(c, &exectest.FakeRunner{})
+	if len(widgets) != 1 || widgets[0].Title() != "Github Pull Requests" {
+		t.Errorf("a disabled widget should be skipped, got %+v", widgets)
+	}
+}
+
+func TestBuildDisabledWidgetDoesNotConsumeSlot(t *testing.T) {
+	c := cfg(1,
+		config.WidgetConfig{Type: "github_prs", Disabled: true},
+		config.WidgetConfig{Type: "github_prs", Title: "Visible"},
+	)
+	widgets := Build(c, &exectest.FakeRunner{})
+	if len(widgets) != 1 || widgets[0].Title() != "Visible" {
+		t.Errorf("a disabled widget must not take a max-widgets slot; got %+v", widgets)
+	}
+}
+
 func TestParseRefresh(t *testing.T) {
 	cases := map[string]time.Duration{
 		"1m":  time.Minute,
