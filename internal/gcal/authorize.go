@@ -52,7 +52,7 @@ func Authorize(ctx context.Context, runner exec.CommandRunner, credentialsPath, 
 	if err != nil {
 		return err
 	}
-	downloads, _ := downloadsDir() // best-effort; empty disables auto-detect
+	downloads, _ := downloadsDir() //nolint:errcheck // best-effort; empty path disables auto-detect
 
 	data, err := ensureCredentials(ctx, os.Stdin, os.Stdout, runner, credsPath, downloads)
 	if err != nil {
@@ -94,7 +94,7 @@ func ensureCredentials(ctx context.Context, in io.Reader, out io.Writer, runner 
 		fmt.Fprintf(out, "\nWhen the JSON has downloaded, press Enter to auto-detect it in %s,\n"+
 			"or paste the file's full path here (Ctrl+C to cancel): ", displayDir(downloads))
 		if !scanner.Scan() {
-			return nil, fmt.Errorf("setup cancelled")
+			return nil, fmt.Errorf("setup canceled")
 		}
 
 		src := cleanPath(scanner.Text())
@@ -331,7 +331,7 @@ func runOAuth(ctx context.Context, out io.Writer, runner exec.CommandRunner, cfg
 		return fmt.Errorf("start local server: %w", err)
 	}
 	defer func() { _ = listener.Close() }()
-	cfg.RedirectURL = fmt.Sprintf("http://127.0.0.1:%d/", listener.Addr().(*net.TCPAddr).Port)
+	cfg.RedirectURL = fmt.Sprintf("http://127.0.0.1:%d/", listener.Addr().(*net.TCPAddr).Port) //nolint:errcheck // *net.TCPAddr is guaranteed for a tcp listener
 
 	state, err := randomState()
 	if err != nil {
@@ -341,8 +341,8 @@ func runOAuth(ctx context.Context, out io.Writer, runner exec.CommandRunner, cfg
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	srv := &http.Server{Handler: redirectHandler(state, codeCh, errCh)}
-	go func() { _ = srv.Serve(listener) }()
-	defer func() { _ = srv.Shutdown(context.Background()) }()
+	go func() { _ = srv.Serve(listener) }()                   //nolint:errcheck // fire-and-forget; Serve returns only when Shutdown is called
+	defer func() { _ = srv.Shutdown(context.Background()) }() //nolint:errcheck // best-effort cleanup on exit
 
 	authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	fmt.Fprintln(out, "\nOpening your browser to approve calendar access…")

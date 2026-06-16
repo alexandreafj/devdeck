@@ -19,7 +19,7 @@ func ParseMode(s string) (Mode, bool) {
 }
 
 // ParseModes converts config strings into Modes, silently skipping any it does
-// not recognise. Callers that need a non-empty set (e.g. the widget) supply
+// not recognize. Callers that need a non-empty set (e.g. the widget) supply
 // their own default when the result is empty.
 func ParseModes(ss []string) []Mode {
 	var modes []Mode
