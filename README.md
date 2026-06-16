@@ -1,5 +1,12 @@
 # DevDeck
 
+[![CI](https://github.com/alexandreafj/devdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandreafj/devdeck/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/alexandreafj/devdeck?sort=semver&cacheSeconds=300)](https://github.com/alexandreafj/devdeck/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/alexandreafj/devdeck)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alexandreafj/devdeck)](https://goreportcard.com/report/github.com/alexandreafj/devdeck)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#install)
+[![License](https://img.shields.io/github/license/alexandreafj/devdeck)](LICENSE)
+
 A terminal dashboard for the things waiting on you: PRs, reviews, and meetings in one place.
 
 DevDeck is a [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI with a

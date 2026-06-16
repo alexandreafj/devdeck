@@ -26,7 +26,7 @@ var defaultTitles = map[string]string{
 	"google_calendar": "Google Calendar",
 }
 
-// Build turns a Config into the dashboard's widgets, honouring Layout.MaxWidgets
+// Build turns a Config into the dashboard's widgets, honoring Layout.MaxWidgets
 // and skipping unknown widget types. The runner is shared by every widget so
 // they all shell out through the same seam.
 func Build(cfg config.Config, runner exec.CommandRunner) []ui.Widget {

@@ -84,7 +84,7 @@ type apiEntryPoint struct {
 }
 
 // DecodeEvents parses the JSON returned by the Calendar API events.list call and
-// maps it onto []Event, resolving all times into loc. Cancelled events and
+// maps it onto []Event, resolving all times into loc. Canceled events and
 // events with no parseable start are skipped; the result preserves input order
 // (the API is queried ordered by start time).
 func DecodeEvents(data []byte, loc *time.Location) ([]Event, error) {
@@ -98,7 +98,7 @@ func DecodeEvents(data []byte, loc *time.Location) ([]Event, error) {
 
 	events := make([]Event, 0, len(resp.Items))
 	for _, it := range resp.Items {
-		if it.Status == "cancelled" {
+		if it.Status == "cancelled" { //nolint:misspell // Google Calendar API status value is spelled "cancelled"
 			continue
 		}
 		start, end, allDay, ok := parseSpan(it.Start, it.End, loc)

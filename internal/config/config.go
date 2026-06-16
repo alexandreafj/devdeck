@@ -17,7 +17,7 @@ import (
 const maxWidgetsCap = 4
 
 // DefaultConfigYAML is the documented starter config written on first run (see
-// Ensure). It keeps comments and instructions YAML marshalling would drop, so
+// Ensure). It keeps comments and instructions YAML marshaling would drop, so
 // the user has a clear, editable file: add, remove, reorder, or duplicate
 // widgets, each authenticating on its own.
 const DefaultConfigYAML = `# DevDeck configuration.

@@ -1,25 +1,68 @@
-# golangci-lint configuration (v1.x format, matches CI pin)
+# golangci-lint configuration (v1.x format, matches CI pin: golangci-lint@v1.64.8).
 run:
   timeout: 5m
+  tests: true
+  go: '1.26'
 
 linters:
-  # Keep the stable defaults (errcheck, gosimple, govet, ineffassign,
-  # staticcheck, unused) and add a few high-signal extras.
+  # Stable defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused)
+  # plus high-signal extras for correctness, error handling, and style.
   enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - gosimple
+    - unused
+    - ineffassign
+    - misspell
+    - unconvert
+    - whitespace
+    - bodyclose
+    - errorlint
+    - nolintlint
+    - stylecheck
     - gofmt
     - goimports
-    - misspell
     - revive
-    - unconvert
 
 linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
   goimports:
     local-prefixes: github.com/alexandreafj/devdeck
+  misspell:
+    locale: US
 
 issues:
   exclude-rules:
-    # Tests favour readability over lint pedantry.
+    # Allow nolint directives with explanation.
+    - linters:
+        - nolintlint
+      text: "directive `//nolint` is unused"
+
+    # Allow underscore imports (used for side effects).
+    - linters:
+        - unused
+      text: "imported but not used"
+      source: "^import _"
+
+    # Allow intentional error ignoring with blank identifier in tests.
+    - linters:
+        - errcheck
+      source: "^\\s*_, _ :="
+      text: "Error return value is not checked"
+
+    # Tests favour readability over lint pedantry; fixtures may also carry API
+    # values like "cancelled" that misspell would otherwise flag.
     - path: _test\.go
       linters:
         - revive
         - errcheck
+        - misspell
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true

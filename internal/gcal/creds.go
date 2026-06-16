@@ -67,6 +67,6 @@ func serviceAccountEmail(data []byte) string {
 	var v struct {
 		ClientEmail string `json:"client_email"`
 	}
-	_ = json.Unmarshal(data, &v)
+	_ = json.Unmarshal(data, &v) //nolint:errcheck // best-effort; returns an empty email on parse failure
 	return v.ClientEmail
 }
